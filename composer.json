@@ -1,0 +1,27 @@
+{
+    "name": "cakedc/oven",
+    "description": "CakePHP install script",
+    "keywords": [
+        "cakephp",
+        "installer"
+    ],
+    "homepage": "https://github.com/CakeDC/oven",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "CakeDC",
+            "homepage": "https://www.cakedc.com",
+            "role": "Author"
+        },
+        {
+            "name": "Others",
+            "homepage": "https://github.com/CakeDC/oven/graphs/contributors"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/CakeDC/oven/issues",
+        "source": "https://github.com/CakeDC/oven"
+    },
+    "require": {
+    }
+}
