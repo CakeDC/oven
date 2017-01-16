@@ -3,6 +3,9 @@ Oven for CakePHP
 
 Setup you favourite framework with 1 file and 1 click!
 
+IMPORTANT: **This is not a deployment script**, it's aimed to help developers installing CakePHP for the first time
+and get a working development environment up and running in seconds. Production environments should consider several other factors, like file permissions, virtualhost configuration, etc.
+
 * Upload oven.php file to your hosting server
 * Click the big oven knob in the middle of the page
 * CakePHP will auto install and ready to go
