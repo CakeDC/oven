@@ -9,7 +9,10 @@
  * @license MIT License (http://www.opensource.org/licenses/mit-license.php)
  */
 
-set_time_limit(600);
+if (!ini_get('safe_mode')) {
+    set_time_limit(600);
+}
+
 ini_set('memory_limit', '512M');
 
 class CakeInstaller {
