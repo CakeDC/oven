@@ -15,6 +15,10 @@ if (!ini_get('safe_mode')) {
 
 ini_set('memory_limit', '512M');
 
+
+/**
+ * Main class
+ */
 class CakeInstaller {
 
     public $installDir;
@@ -241,11 +245,13 @@ class CakeInstaller {
         return $result;
     }
 
-    protected function isCakeInstalled() {
+    protected function isCakeInstalled()
+    {
         return file_exists($this->installDir);
     }
 
-    public function getComposerVersion() {
+    public function getComposerVersion()
+    {
         if (!file_exists($this->currentDir . $this->composerFilename)) {
             return false;
         }
@@ -262,7 +268,8 @@ class CakeInstaller {
         require_once "phar://{$this->currentDir}{$this->composerFilename}/src/bootstrap.php";
     }
 
-    protected function runComposer($input) {
+    protected function runComposer($input)
+    {
         $this->requireComposer();
 
         putenv("COMPOSER_HOME={$this->composerHomeDir}");
