@@ -1,7 +1,6 @@
 <p align="center"><img src="https://dc74e15a9d6a20fc42e9-8180e0640683960d833bd97592fb3e61.ssl.cf2.rackcdn.com/img/Oven-CakePHP-WhiteBackground.svg"></p>
 
 <p align="center">
-<a href="https://packagist.org/packages/CakeDC/oven"><img src="https://poser.pugx.org/CakeDC/oven/d/total.png" alt="Downloads"></a>
 <a href="https://packagist.org/packages/CakeDC/oven"><img src="https://poser.pugx.org/CakeDC/oven/v/stable.png" alt="Latest Version"></a>
 <a href="https://packagist.org/packages/CakeDC/oven"><img src="https://poser.pugx.org/CakeDC/oven/license.svg" alt="License"></a>
 </p>
