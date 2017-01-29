@@ -24,14 +24,15 @@ class Oven {
     public $composerPath;
     public $appDir = 'app';
 
+    const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
 
     public function __construct()
     {
         $this->currentDir = __DIR__ . DIRECTORY_SEPARATOR;
 
-        if (isset($_GET['dir'])) {
-            $this->appDir = urldecode($_GET['dir']);
+        if (isset($_POST['dir'])) {
+            $this->appDir = $_POST['dir'];
         }
 
         if (!$this->composerPath = $this->getComposerPathFromQuery()) {
@@ -45,8 +46,8 @@ class Oven {
 
     public function run()
     {
-        if (isset($_GET['action'])) {
-            $action = 'run' . ucfirst($_GET['action']);
+        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
+            $action = 'run' . ucfirst($_POST['action']);
             if (method_exists($this, $action)) {
                 header('Content-Type: application/json');
                 $result = $this->$action();
@@ -60,12 +61,16 @@ class Oven {
     public function getComposerPathFromQuery()
     {
         $var = 'composerPath';
-        if (!isset($_GET[$var]) || empty($_GET[$var])) {
+        if (!isset($_POST[$var]) || empty($_POST[$var])) {
             return false;
         }
 
-        if (!is_readable($path = urldecode($_GET[$var]))) {
+        if (!is_readable($path = $_POST[$var])) {
             throw new Exception("Composer installation not found at {$path}");
+        }
+
+        if (substr($path, -5) != '.phar') {
+            throw new Exception("Composer installation has to be with .phar extension");
         }
 
         return $path;
@@ -75,12 +80,20 @@ class Oven {
     {
         $paths = explode(':', getenv('PATH'));
         foreach ($paths as $path) {
-            if (is_readable($composerPath = $path . DIRECTORY_SEPARATOR . 'composer.phar')) {
+            if (is_readable($composerPath = $path . DIRECTORY_SEPARATOR . $this->composerFilename)) {
                 return $composerPath;
             }
         }
 
         return false;
+    }
+
+    protected function updateDatasourceConfig($path, $field, $value)
+    {
+        $config = file_get_contents($path);
+        $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '$1' . addslashes($value) . '$2', $config);
+
+        return file_put_contents($path, $config);
     }
 
     protected function runCheckPhp()
@@ -168,6 +181,13 @@ class Oven {
             '--working-dir' => $this->installDir,
         ])->fetch();
 
+        $configPath = $this->installDir . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'app.php';
+        foreach (['host', 'username', 'password', 'database'] as $field) {
+            if (isset($_POST[$field]) && !empty($_POST[$field])) {
+                $this->updateDatasourceConfig($configPath, $field, $_POST[$field]);
+            }
+        }
+
         $message = 'Finalised!';
 
         return compact('log', 'message');
@@ -229,7 +249,7 @@ class Oven {
                 $dev = $req == 'require-dev';
                 $steps[] = [
                     'title' => $package == 'php' ? "Requiring platform {$package}:{$version}..." : "Installing {$package}:{$version}...",
-                    'url' => "oven.php?" . http_build_query(compact('action', 'package', 'version', 'dev', 'dir', 'composerPath'))
+                    'data' => compact('action', 'package', 'version', 'dev', 'dir', 'composerPath')
                 ];
             }
         }
@@ -243,9 +263,9 @@ class Oven {
 
     protected function runInstallPackage()
     {
-        $package = $_GET['package'];
-        $version = $_GET['version'];
-        $dev = isset($_GET['dev']) && $_GET['dev'];
+        $package = $_POST['package'];
+        $version = $_POST['version'];
+        $dev = isset($_POST['dev']) && $_POST['dev'];
 
         $this->checkPath($this->installDir);
 
@@ -656,6 +676,10 @@ $svgs = [
             color: #0071BC;
         }
 
+        .header {
+            margin-bottom: 30px;
+        }
+
         .text-success {
             color: #88C671;
         }
@@ -744,7 +768,6 @@ $svgs = [
             font-size: 18px;
             font-weight: 700;
             text-align: center;
-            margin-top: 80px;
         }
 
         #start img {
@@ -803,6 +826,59 @@ $svgs = [
             display: inline-block;
         }
 
+        .input-group-addon {
+            border-radius: 0;
+            border-color: #deded5;
+        }
+
+        .form-control {
+            border-color: #deded5;
+            border-radius: 0;
+            -webkit-box-shadow: none;
+            -moz-box-shadow: none;
+            box-shadow: none;
+        }
+
+        .radio {
+            margin-top: 3px;
+            margin-bottom: 3px;
+        }
+
+        .form-group {
+            margin-bottom: 5px;
+        }
+
+        fieldset {
+            margin-bottom: 10px;
+        }
+
+        legend {
+            margin-bottom: 5px;
+            padding-bottom: 5px;
+            border-color: #deded5;
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .form-group label, .radio label {
+            margin-bottom: 3px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        legend label {
+            margin: 0;
+        }
+
+        .radio label {
+            text-transform: none;
+        }
+
+        input[type=checkbox], input[type=radio] {
+            margin-top: 2px;
+        }
+
         @media (min-width: 1200px) {
             .container {
                 width: 970px;
@@ -817,13 +893,15 @@ $svgs = [
             .header {
                 padding-left: 30px;
                 padding-right: 30px;
-                margin-bottom: 30px;
             }
             .hide-me {
                 display: none;
             }
             .cake-button {
                 margin-left: -159px;
+            }
+            .starting {
+                margin-top: 140px;
             }
         }
 
@@ -860,9 +938,8 @@ $svgs = [
         <form action="" class="row" id="config-form">
             <div class="col-lg-6">
                 <fieldset>
-                    <legend>Path</legend>
+                    <legend style="border: none; margin: 0"><label for="app_dir">APP INSTALL DIR</label></legend>
                     <div class="form-group">
-                        <label for="app_dir">App install dir</label>
                         <div class="input-group">
                             <div class="input-group-addon" id="current_dir"><?php echo $oven->currentDir; ?></div>
                             <input type="text" class="form-control" id="app_dir" name="app_dir" value="<?php echo $oven->appDir; ?>" />
@@ -887,22 +964,22 @@ $svgs = [
                     </div>
                 </fieldset>
                 <fieldset>
-                    <legend>Datasource</legend>
+                    <legend>Database configuration</legend>
                     <div class="form-group">
-                        <label for="path">Host</label>
-                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                        <label for="host">Host</label>
+                        <input type="text" class="form-control" id="host" name="host" />
                     </div>
                     <div class="form-group">
-                        <label for="path">Username</label>
-                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                        <label for="username">Username</label>
+                        <input type="text" class="form-control" id="username" name="username" />
                     </div>
                     <div class="form-group">
-                        <label for="path">Password</label>
-                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                        <label for="password">Password</label>
+                        <input type="text" class="form-control" id="password" name="password" />
                     </div>
                     <div class="form-group">
-                        <label for="path">Database</label>
-                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                        <label for="database">Database</label>
+                        <input type="text" class="form-control" id="database" name="database" />
                     </div>
                 </fieldset>
             </div>
@@ -1013,23 +1090,23 @@ $svgs = [
             [
                 {
                     title: 'Checking path...',
-                    url: 'oven.php?action=checkPath&dir=' + encodeURI(dir)
+                    data: { action: 'checkPath', dir: dir }
                 },
                 {
                     title: 'Checking PHP version...',
-                    url: 'oven.php?action=checkPhp'
+                    data: { action: 'checkPhp' }
                 },
                 {
                     title: 'Checking mbstring extension...',
-                    url: 'oven.php?action=checkMbString'
+                    data: { action: 'checkMbString' }
                 },
                 {
                     title: 'Checking openssl/mcrypt extension...',
-                    url: 'oven.php?action=checkOpenSSL'
+                    data: { action: 'checkOpenSSL' }
                 },
                 {
                     title: 'Checking intl extension...',
-                    url: 'oven.php?action=checkIntl',
+                    data: { action: 'checkIntl' },
                     success: function(response) {
                         $('#progress').attr('class', '').addClass('progress-2');
                         runComposerSteps($composerList, $cakeList, dir);
@@ -1044,13 +1121,13 @@ $svgs = [
         $('#composer-list-wrapper').show();
 
         var title = 'Installing composer...';
-        var url = 'oven.php?action=installComposer';
+        var data = { action: 'installComposer' };
 
         var composerPath = false;
         if ($('input:checked[name="install_composer"]').val() == 0) {
             composerPath = $('#composer_path').val();
             title = 'Checking composer installation...';
-            url += '&composerPath=' + encodeURI(composerPath);
+            data.composerPath = composerPath;
         }
 
         runSteps(
@@ -1058,7 +1135,7 @@ $svgs = [
             [
                 {
                     title: title,
-                    url: url,
+                    data: data,
                     success: function(response) {
                         $('#progress').attr('class', '').addClass('progress-3');
                         runCakeSteps($cakeList, dir, composerPath);
@@ -1076,12 +1153,24 @@ $svgs = [
             [
                 {
                     title: 'Creating CakePHP project...',
-                    url: 'oven.php?action=createProject&dir=' + encodeURI(dir) + '&composerPath=' + encodeURI(composerPath),
+                    data: {
+                        action: 'createProject',
+                        dir: dir,
+                        composerPath: composerPath
+                    },
                     success: function(response) {
                         var steps = response.steps;
                         steps.push({
                             title: 'Finalising...',
-                            url: 'oven.php?action=finalise&dir=' + encodeURI(dir) + '&composerPath=' + encodeURI(composerPath)
+                            data: {
+                                action: 'finalise',
+                                dir: dir,
+                                composerPath: composerPath,
+                                host: $('input[name="host"]').val(),
+                                username: $('input[name="username"]').val(),
+                                password: $('input[name="password"]').val(),
+                                database: $('input[name="database"]').val()
+                            }
                         });
                         runSteps('deps', response.steps, $list);
                     },
@@ -1109,9 +1198,11 @@ $svgs = [
             var $message = $('<span>' + step.title + '</span>');
 
             $.ajaxq(queue, {
-                url: step.url,
+                url: 'oven.php',
                 dataType: 'json',
                 cache: false,
+                method: 'post',
+                data: step.data,
                 beforeSend: function (jqXHR, settings) {
                     $listItem
                         .append($icon)
