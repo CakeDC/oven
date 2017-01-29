@@ -15,7 +15,7 @@ if (!ini_get('safe_mode')) {
 
 ini_set('memory_limit', '512M');
 
-class CakeInstaller {
+class Oven {
 
     public $installDir;
     public $currentDir;
@@ -28,6 +28,11 @@ class CakeInstaller {
     public function __construct()
     {
         $this->currentDir = __DIR__ . DIRECTORY_SEPARATOR;
+
+        if (isset($_GET['dir'])) {
+            $this->appDir = urldecode($_GET['dir']);
+        }
+
         $this->installDir = $this->currentDir . $this->appDir;
         $this->composerHomeDir = $this->currentDir . '.composer';
         $this->composerFilename = 'composer.phar';
@@ -39,14 +44,9 @@ class CakeInstaller {
             $action = 'run' . ucfirst($_GET['action']);
             if (method_exists($this, $action)) {
                 header('Content-Type: application/json');
-                try {
-                    $result = $this->$action();
-                } catch (Exception $e) {
-                    http_response_code(500);
-                    $result = ['message' => $e->getMessage()];
-                }
-
+                $result = $this->$action();
                 echo json_encode($result);
+
                 exit(0);
             }
         }
@@ -97,20 +97,25 @@ class CakeInstaller {
     protected function runCheckPath()
     {
         usleep(self::REQUIREMENTS_DELAY);
-        if (!is_writable($this->currentDir)) {
-            throw new Exception($this->currentDir . ' directory is NOT writable');
+
+        if (file_exists($this->installDir)) {
+            if (!is_dir($this->installDir)) {
+                throw new Exception($this->installDir . ' is not a directory');
+            }
+
+            if (!is_writable($this->installDir)) {
+                throw new Exception($this->installDir . ' directory is NOT writable');
+            }
+        } elseif (!is_writable(dirname($this->installDir))) {
+            throw new Exception(dirname($this->installDir) . ' directory is NOT writable');
         }
 
-        return ['message' => $this->currentDir . ' directory is writable'];
-    }
-
-    public function getAppUrl()
-    {
-        return $this->appDir;
+        return ['message' => $this->installDir . ' directory is writable'];
     }
 
     protected function runFinalise()
     {
+        $this->runCheckPath();
         $this->restoreScripts();
 
         $log = $this->runComposer([
@@ -151,11 +156,26 @@ class CakeInstaller {
 
     protected function runCreateProject()
     {
-        if ($this->isCakeInstalled()) {
+        if ($this->isCakeInstalled($this->installDir)) {
             throw new Exception('CakePHP app already installed');
         }
 
-        $log = $this->createProject(false);
+        $this->runCheckPath();
+
+        if (file_exists($this->installDir) && $this->installDir != $this->currentDir && !$this->isDirEmpty($this->installDir)) {
+            throw new Exception("{$this->installDir} is not empty");
+        }
+        if (!file_exists($this->installDir) && !mkdir($this->installDir, 0, true)) {
+            throw new Exception("Could NOT create {$this->installDir} directory");
+        }
+
+        if (strpos(realpath($this->installDir), realpath($this->currentDir)) !== 0) {
+            throw new Exception('Invalid app dir ' . $this->installDir);
+        }
+
+        $log = $this->createProject($this->installDir, false);
+
+        $dir = $this->appDir;
 
         if (strpos($log, 'Created project in ' . $this->installDir) === false) {
             throw new Exception('Error while creating project');
@@ -172,16 +192,10 @@ class CakeInstaller {
                 $dev = $req == 'require-dev';
                 $steps[] = [
                     'title' => $package == 'php' ? "Requiring platform {$package}:{$version}..." : "Installing {$package}:{$version}...",
-                    'url' => "oven.php?" . http_build_query(compact('action', 'package', 'version', 'dev'))
+                    'url' => "oven.php?" . http_build_query(compact('action', 'package', 'version', 'dev', 'dir'))
                 ];
             }
         }
-
-        $action = 'finalise';
-        $steps[] = [
-            'title' => 'Finalising...',
-            'url' => "oven.php?" . http_build_query(compact('action', 'dev'))
-        ];
 
         return [
             'message' => 'CakePHP project created',
@@ -196,13 +210,15 @@ class CakeInstaller {
         $version = $_GET['version'];
         $dev = isset($_GET['dev']) && $_GET['dev'];
 
+        $this->runCheckPath();
+
         return [
             'message' => "{$package}:{$version} installed",
-            'log' => $this->installPackage($package, $version, $dev)
+            'log' => $this->installPackage($package, $version, $dev, $this->installDir)
         ];
     }
 
-    protected function installComposer($installDir, $filename)
+    protected function installComposer($dir, $filename)
     {
         putenv("COMPOSER_HOME={$this->composerHomeDir}");
         putenv("OSTYPE=OS400");
@@ -226,7 +242,7 @@ class CakeInstaller {
         ob_start();
         ini_set('register_argc_argv', 0);
         $argv = [
-            "--install-dir={$installDir}",
+            "--install-dir={$dir}",
             "--filename={$filename}",
         ];
         require($composerSetupFilename);
@@ -234,15 +250,15 @@ class CakeInstaller {
 
         unlink($composerSetupFilename);
 
-        if (strpos($result, 'successfully installed to: ' . $installDir . $filename) === false) {
+        if (strpos($result, 'successfully installed to: ' . $dir . $filename) === false) {
             throw new Exception('Error while installing composer');
         }
 
         return $result;
     }
 
-    protected function isCakeInstalled() {
-        return file_exists($this->installDir);
+    protected function isCakeInstalled($dir) {
+        return file_exists($dir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'cakephp' . DIRECTORY_SEPARATOR . 'cakephp' . DIRECTORY_SEPARATOR . 'VERSION.txt');
     }
 
     public function getComposerVersion() {
@@ -278,14 +294,19 @@ class CakeInstaller {
         return $output;
     }
 
-    protected function createProject($install = false)
+    protected function createProject($dir, $install = false)
     {
+        $tmpDir = false;
+        if (!$this->isDirEmpty($dir)) {
+            $tmpDir = __DIR__ . DIRECTORY_SEPARATOR . uniqid();
+        }
+
         $input = [
             'command' => 'create-project',
             '--no-interaction' => true,
             '--prefer-dist' => true,
             'package' => 'cakephp/app',
-            'directory' => $this->installDir,
+            'directory' => $tmpDir ? $tmpDir : $dir,
         ];
 
         if (!$install) {
@@ -297,22 +318,95 @@ class CakeInstaller {
 
         $output = $this->runComposer($input);
 
+        if ($tmpDir) {
+            $this->moveDir($tmpDir, $dir);
+        }
+
         return $output->fetch();
     }
 
-    protected function installProject()
+    protected function isDirEmpty($dir) {
+        if (!is_readable($dir)) {
+            throw new Exception("{$dir} is NOT readable");
+        }
+
+        $handle = opendir($dir);
+        while (false !== ($entry = readdir($handle))) {
+            if ($entry != "." && $entry != "..") {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * A Recursive directory move.
+     *
+     * @param string $src The fully qualified source directory to copy
+     * @param string $dest The fully qualified destination directory to copy to
+     * @throws InvalidArgumentException
+     * @throws ErrorException
+     * @return boolean                    Returns TRUE on success, throws an error otherwise.
+     */
+    function moveDir($src, $dest)
     {
-        $output = $this->runComposer([
-            'command' => 'install',
-            '--no-interaction' => true,
-            '--prefer-dist' => true,
-            '--working-dir' => $this->installDir,
-        ]);
+        if (!is_dir($src)) {
+            throw new InvalidArgumentException('The source passed in does not appear to be a valid directory: [' . $src . ']', 1);
+        }
 
-        return $output->fetch();
+        if (!is_dir($dest) && !mkdir($dest, 0, true)) {
+            throw new InvalidArgumentException('The destination does not exist, and I can not create it: [' . $dest . ']', 2);
+        }
+
+        $emptiedDirs = array();
+
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $f) {
+            $relativePath = str_replace($src, '', $f->getRealPath());
+            $destination = $dest . $relativePath;
+
+            if ($f->isFile()) {
+                $path_parts = pathinfo($destination);
+
+                if (!is_dir($path_parts['dirname']) && !mkdir($path_parts['dirname'], 0, true)) {
+                    throw new ErrorException("Failed to create the destination directory: [{$path_parts['dirname']}]", 5);
+                }
+
+                if (!rename($f->getRealPath(), $destination)) {
+                    throw new ErrorException("Failed to rename file [{$f->getRealPath()}] to [$destination]", 6);
+                }
+            } elseif ($f->isDir()) {
+                if (!is_dir($destination) && !mkdir($destination, 0, true)) {
+                    throw new ErrorException("Failed to create the destination directory: [$destination]", 7);
+                }
+
+                array_push($emptiedDirs, $f->getRealPath());
+            }
+        }
+
+        foreach ($emptiedDirs as $emptyDir) {
+            if (realpath($emptyDir) == realpath($src)) {
+                continue;
+            }
+
+            if (!is_readable($emptyDir)) {
+                throw new ErrorException("The source directory {$emptyDir} is NOT readable", 9);
+            }
+
+            if (!rmdir($emptyDir)) {
+                throw new ErrorException("Failed to delete the source director {$emptyDir}", 10);
+            }
+        }
+
+        // Finally, delete the base of the source directory we just recursed through
+        if (!rmdir($src)) {
+            throw new ErrorException("Failed to delete the base source directory: {$src}", 11);
+        }
+
+        return true;
     }
 
-    protected function installPackage($package, $version, $dev = false)
+    protected function installPackage($package, $version, $dev, $dir)
     {
         $allowedPackages = $this->getDependencies();
         $allowedPackages = $allowedPackages['require'] + $allowedPackages['require-dev'];
@@ -325,7 +419,7 @@ class CakeInstaller {
             'command' => 'require',
             '--prefer-dist' => true,
             '--no-interaction' => true,
-            '--working-dir' => $this->installDir,
+            '--working-dir' => $dir,
             '--no-progress' => true,
             'packages' => [
                 $package . ($version ? ':' . $version : '')
@@ -398,10 +492,14 @@ class CakeInstaller {
     }
 }
 
-$installer = new CakeInstaller();
-$installer->run();
-
-$readyToInstall = true;
+try {
+    $oven = new Oven();
+    $oven->run();
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['message' => $e->getMessage()]);
+    exit(0);
+}
 
 $svgs = [
     'knob' => 'data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIGlkPSJMYXllcl8xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB4PSIwcHgiIHk9IjBweCINCiAgICAgICAgICAgICAgICAgd2lkdGg9IjE2NS43MjNweCIgaGVpZ2h0PSIxNjUuNzI3cHgiIHZpZXdCb3g9IjAgMCAxNjUuNzIzIDE2NS43MjciIGVuYWJsZS1iYWNrZ3JvdW5kPSJuZXcgMCAwIDE2NS43MjMgMTY1LjcyNyINCiAgICAgICAgICAgICAgICAgeG1sOnNwYWNlPSJwcmVzZXJ2ZSI+DQogICAgICAgICAgICA8cGF0aCBmaWxsPSIjRDMzRDQ0IiBkPSJNMTM1LjUzNSwzMC4xODJjLTI5LjA5Mi0yOS4wOS03Ni4yNjQtMjkuMDktMTA1LjM0OCwwYy0yOS4xLDI5LjA5Mi0yOS4xLDc2LjI2NSwwLDEwNS4zNjUNCiAgICAgICAgICAgICAgICBjMjkuMDgzLDI5LjA5LDc2LjI1NSwyOS4wOSwxMDUuMzQ4LTAuMDExQzE2NC42MzQsMTA2LjQ0NiwxNjQuNjM0LDU5LjI3NCwxMzUuNTM1LDMwLjE4MnogTTExMy4zMjYsMTEzLjMzMQ0KICAgICAgICAgICAgICAgIGMtMTYuODI5LDE2LjgyNS00NC4xMTEsMTYuODE3LTYwLjkzLDBjLTEzLjA1MS0xMy4wNTMtMTUuOTM0LTMyLjM2OS04Ljc0Ny00OC4yMzhsLTUuNjItMjcuMDYxbDI3LjA2Niw1LjYyMQ0KICAgICAgICAgICAgICAgIGMxNS44NzItNy4xODgsMzUuMTc3LTQuMzA1LDQ4LjIyOSw4Ljc0N0MxMzAuMTU2LDY5LjIxOSwxMzAuMTU2LDk2LjUwMSwxMTMuMzI2LDExMy4zMzF6Ii8+DQogICAgICAgICAgICA8L3N2Zz4=',
@@ -418,7 +516,6 @@ $svgs = [
     'progress-9' => 'data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIGlkPSJMYXllcl8xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB4PSIwcHgiIHk9IjBweCINCgkgd2lkdGg9IjIwNC44OTVweCIgaGVpZ2h0PSIyNTkuNDc5cHgiIHZpZXdCb3g9IjAgMCAyMDQuODk1IDI1OS40NzkiIGVuYWJsZS1iYWNrZ3JvdW5kPSJuZXcgMCAwIDIwNC44OTUgMjU5LjQ3OSINCgkgeG1sOnNwYWNlPSJwcmVzZXJ2ZSI+DQo8cGF0aCBmaWxsPSIjRDMzRDQ0IiBkPSJNMTkwLjkxMywxNjUuNjI4YzUuNTYsMy41ODksOS4yNzcsNy4wODgsMTEuMTU5LDEwLjUwMmMxLjg4MywzLjM5MSwyLjgyMiw2LjU0MiwyLjgyMiw5LjQxMnYyMC45NjENCgljMCwyLjY5My0wLjM2LDQuNzQ4LTEuMDcyLDYuMTkxYy0xLjA4MiwzLjQxNC0zLjMyNSw1LjEtNi43MjgsNS4xdjkuNDA4YzAsNC40ODgtMi40NjMsOC42NjYtNy4zOTYsMTIuNTE2DQoJYy00LjkyNCwzLjg1NC0xMS42OTUsNy4yNjktMjAuMjk3LDEwLjIyM2MtOC42MDksMi45NTQtMTguNjQ0LDUuMjkzLTMwLjExOSw2Ljk3OWMtMTEuNDY3LDEuNzA5LTIzLjc1NCwyLjU2LTM2Ljg0LDIuNTYNCgljLTEzLjA4NCwwLTI1LjQwNC0wLjg1MS0zNi45NjktMi41NmMtMTEuNTY2LTEuNjg3LTIxLjY0My00LjAyNC0zMC4yNTItNi45NzljLTguNjAxLTIuOTU0LTE1LjM3My02LjM2OC0yMC4yOTgtMTAuMjIzDQoJYy00LjkzNC0zLjg1LTcuMzk2LTguMDI2LTcuMzk2LTEyLjUxNnYtOS40MDhjLTMuMDUzLDAtNS4yODMtMS42ODYtNi43MTctNS4xQzAuMjc1LDIxMS4wNzUsMCwyMDkuMDE5LDAsMjA2LjUwM3YtMjAuOTYxDQoJYzAtMi44NywwLjg5Ni02LjAyMSwyLjY5LTkuNDEyYzEuNzgzLTMuNDE0LDUuNDYxLTYuOTEzLDExLjAyLTEwLjUwMmMtMS4yNDctMC43MDEtMi4zMjktMi4xNDUtMy4yMjctNC4yODkNCgljLTAuNTM3LTEuMjQ2LTAuOC0zLjIzOC0wLjgtNS45MXYtMjAuMTc0YzAtNy4wMDIsMy45MzgtMTMuMjYyLDExLjgyOC0xOC44MTljLTAuMzYyLTAuMzczLTAuNzY3LTAuODU0LTEuMjE2LTEuNDg4DQoJYy0wLjQ0OS0wLjYxMS0wLjg0Mi0xLjM3NS0xLjIwNC0yLjI3NWMtMC4zNi0xLjc5NS0wLjUzNi0zLjY3NC0wLjUzNi01LjY0NFY4Ny45MjRjMC02LjYyOSwzLjQ5LTEyLjYyNywxMC40OC0xOC4wMQ0KCWMtMC44OTYtMC44OTYtMS42MDctMS45NzEtMi4xNDQtMy4yMTdjLTAuMzYxLTEuNzkzLTAuNTQ5LTMuNjc0LTAuNTQ5LTUuNjY2di0xOC4wMWMwLTUuMDEyLDIuMDY5LTkuNjcsNi4xOTItMTMuOTgyDQoJYzQuMTE1LTQuMjg5LDEwLjAzMy03Ljk2NCwxNy43NDgtMTEuMDI1YzYuNjMyLTIuNjkzLDE0LjE1Ni00Ljc1LDIyLjU4Mi02LjE3NmM4LjQyNi0xLjQ0MiwxNy4yMTEtMi4zMzgsMjYuMzU3LTIuNjg4DQoJYy0wLjcyMy0xLjI0NS0xLjUzMS0yLjM4NC0yLjQyOS0zLjM2N2MtMC44OTctMC45ODUtMi4wNTktMS42NDMtMy40OTMtMi4wMTdjLTAuODk2LTAuMzUtMS4zNDQtMC45ODMtMS4zNDQtMS44ODMNCgljMC0wLjcyMSwwLjI3My0xLjIwMSwwLjgxMS0xLjQ2N2MwLjUzMy0wLjI4MywwLjk4NC0wLjQxNCwxLjM0NC0wLjQxNGMxLjQzNiwwLDMuMDg4LDEuMDMsNC45NywzLjA4Ng0KCWMxLjg4LDIuMDc3LDMuMjcsNC4wOTIsNC4xNjcsNi4wNjJjOS42ODUsMC4xNzYsMTguOTE5LDAuOTg1LDI3LjcwNCwyLjQwNWM4Ljc3MiwxLjQ0NCwxNi41NzUsMy41OTEsMjMuMzkxLDYuNDU5DQoJYzcuODc3LDMuMDYyLDEzLjg4Niw2LjczNiwxOC4wMTEsMTEuMDI1YzQuMTI1LDQuMzEyLDYuMTgxLDguOTcyLDYuMTgxLDEzLjk4MnYxOC4wMWMwLDIuNTE0LTAuMjYxLDQuMzk3LTAuNzk4LDUuNjY2DQoJYy0wLjE4NywxLjA3Ni0wLjgxMiwyLjE0Ni0xLjg4MywzLjIxN2M2Ljk5Myw1LjU1OSwxMC40ODIsMTEuNTU3LDEwLjQ4MiwxOC4wMXYxOS4xMDRjMCwyLjUxMy0wLjI2NCw0LjM5Ni0wLjgxMSw1LjY0NA0KCWMtMC41MzcsMS43OTUtMS4zMzYsMy4wNDUtMi40MiwzLjc2NWM4LjA3NSw1LjU1OSwxMi4xMDQsMTEuODE3LDEyLjEwNCwxOC44MTl2MjAuMTc0YzAsMi42NzMtMC4yNjQsNC42NjQtMC44MTEsNS45MQ0KCUMxOTMuNTA3LDE2My40ODMsMTkyLjM0NiwxNjQuOTI3LDE5MC45MTMsMTY1LjYyOHogTTE5OS41MSwxODUuNTQyYzAtNS41Ni0zLjkzNi0xMC44NTYtMTEuODI1LTE1Ljg2N3Y1LjkxDQoJYzAsNC4zMS0yLjI0Miw4LjMzNy02LjcxOCwxMi4wOTdjLTQuNDg0LDMuNzY2LTEwLjU4Miw3LjA0OS0xOC4yOTMsOS44MjdjLTcuNzA1LDIuNzc5LTE2LjcwNyw0Ljk3LTI3LjAxNSw2LjU4OA0KCWMtMTAuMzE2LDEuNTk3LTIxLjM3OSwyLjQwNi0zMy4yMTgsMi40MDZjLTExLjgyOCwwLTIyLjg5OC0wLjgxMS0zMy4yMDQtMi40MDZjLTEwLjMwOC0xLjYxOC0xOS4zMTItMy44MDktMjcuMDI0LTYuNTg4DQoJYy03LjcwNS0yLjc3OC0xMy43OTctNi4wNjItMTguMjgyLTkuODI3Yy00LjQ3Ni0zLjc2LTYuNzItNy43ODgtNi43Mi0xMi4wOTd2LTUuOTFjLTguMDYyLDUuMDExLTEyLjEsMTAuMzA5LTEyLjEsMTUuODY3djIwLjk2MQ0KCWMwLDQuMTM3LDAuODExLDYuMTkxLDIuNDE2LDYuMTkxYzAuNTM2LDAsMC44OTgtMC4zMDcsMS4wNzMtMC45MzljMC4xODgtMC42MzQsMC40OTMtMS4zNTYsMC45MzktMi4xNDYNCgljMC40NDktMC44MTEsMS4wODQtMS41MzQsMS44ODItMi4xNjdjMC44MTEtMC42MTIsMi4wMjMtMC45MzksMy42MzUtMC45MzljMS42MTksMCwyLjgyMiwxLjA3NCwzLjYzMSwzLjIzNw0KCWMwLjgxMSwyLjE0NiwxLjYwOSw0LjUyNywyLjQxOSw3LjExM2MwLjgxLDIuNjA0LDEuNzA4LDQuOTg3LDIuNjkyLDcuMTM0YzAuOTgzLDIuMTQ1LDIuNDU5LDMuMjE1LDQuNDMsMy4yMTUNCgljMS43OTQsMCwzLjMxNS0wLjQ4LDQuNTcyLTEuNDY2YzEuMjYtMC45ODUsMi40Mi0yLjA1NiwzLjUwMi0zLjIzOGMxLjA3MS0xLjE1OSwyLjIzMS0yLjIzLDMuNDg4LTMuMjE1DQoJYzEuMjYtMC45ODUsMi44NjgtMS40ODksNC44NS0xLjQ4OWMxLjk3LDAsMy40OSwxLjA5NCw0LjU2MiwzLjIzOGMxLjA4NCwyLjE0NiwyLjExLDQuNTcyLDMuMDk3LDcuMjY0DQoJYzAuOTgzLDIuNjcxLDIuMTAxLDUuMDk5LDMuMzU4LDcuMjQ0YzEuMjYsMi4xNjgsMi45NjYsMy4yMzcsNS4xMDgsMy4yMzdjMi4xNTYsMCwzLjgxLTAuNzIxLDQuOTc4LTIuMTQ2DQoJYzEuMTYxLTEuNDQzLDIuMjQ1LTIuOTczLDMuMjI5LTQuNTc0YzAuOTgzLTEuNjE4LDIuMTAxLTMuMTQ2LDMuMzU5LTQuNTcyYzEuMjQ2LTEuNDQzLDMuMTI3LTIuMTYyLDUuNjQ0LTIuMTYyDQoJYzIuMzMyLDAsNC4zNDQsMS4wNDcsNi4wNTIsMy4xMDVjMS43MDYsMi4wNTcsMy4zNTcsNC4yODYsNC45NzksNi43MmMxLjYwNiwyLjQyOSwzLjQ0Niw0LjY1OCw1LjUwNCw2LjcxNQ0KCWMyLjA2NSwyLjA1OSw0LjcxNywzLjA4NCw3LjkzMiwzLjA4NGMzLjIyOSwwLDUuODc1LTEuMDI1LDcuOTMzLTMuMDg0YzIuMDY5LTIuMDU3LDMuOTA2LTQuMjg2LDUuNTE4LTYuNzE1DQoJYzEuNjE4LTIuNDM0LDMuMjI2LTQuNjYzLDQuODQ2LTYuNzJjMS42MDYtMi4wNiwzLjY2NC0zLjEwNSw2LjE4LTMuMTA1YzIuMzMyLDAsNC4xNywwLjcxOSw1LjUxOCwyLjE2Mg0KCWMxLjM0NSwxLjQyNiwyLjQ2MiwyLjk1NCwzLjM1Nyw0LjU3MmMwLjg5OCwxLjYwMywxLjkyNywzLjEzMSwzLjA5OSw0LjU3NGMxLjE1NSwxLjQyNSwyLjgxOSwyLjE0Niw0Ljk2NywyLjE0Ng0KCWMyLjE1MiwwLDMuODUtMS4wNjksNS4xMDctMy4yMzdjMS4yNi0yLjE0NiwyLjM3NC00LjU3MywzLjM1OC03LjI0NGMwLjk4NS0yLjY5LDIuMDU5LTUuMTE4LDMuMjI3LTcuMjY0DQoJYzEuMTczLTIuMTQ2LDIuNzM3LTMuMjM4LDQuNzA3LTMuMjM4YzEuOTY4LDAsMy41ODgsMC41MDQsNC44NDcsMS40ODljMS4yNDgsMC45ODMsMi40MiwyLjA1NiwzLjQ4OCwzLjIxNQ0KCWMxLjA3MiwxLjE4NCwyLjE5OCwyLjI1MywzLjM1OSwzLjIzOGMxLjE3MiwwLjk4NCwyLjczNiwxLjQ2Niw0LjcwNiwxLjQ2NmMxLjc5NSwwLDMuMjI3LTEuMDcsNC4zMTEtMy4yMTUNCgljMS4wNzItMi4xNDYsMS45Ny00LjUyOSwyLjY4MS03LjEzNGMwLjcyMy0yLjU4NiwxLjUyMS00Ljk2OSwyLjQzLTcuMTEzYzAuODg1LTIuMTYzLDIuMTQ1LTMuMjM3LDMuNzY0LTMuMjM3DQoJYzEuNjA3LDAsMi44MjIsMC4zMjcsMy42MTksMC45MzljMC44MTIsMC42MzMsMS4zOTEsMS4zNTYsMS43NTMsMi4xNjdjMC4zNjIsMC43ODcsMC42NzksMS41MTIsMC45MzgsMi4xNDYNCgljMC4yNzQsMC42MzQsMC41ODEsMC45MzksMC45NDIsMC45MzljMS42MTgsMCwyLjQxNi0yLjA1NiwyLjQxNi02LjE5MUwxOTkuNTEsMTg1LjU0MkwxOTkuNTEsMTg1LjU0MnogTTE0Ljc5NCwxNTUuNDI4DQoJYzAsMy45MzksMC44LDUuOTEsMi40MTgsNS45MWMwLjM2MSwwLDAuNjI1LTAuMzA3LDAuODEtMC45MzljMC4xNzYtMC42MzUsMC40MzgtMS4yOTEsMC44MDEtMi4wMTYNCgljMC4zNTktMC43MjUsMC44OTctMS4zOTcsMS42MTktMi4wMTVjMC43MTEtMC42MzQsMS43ODMtMC45NCwzLjIyOC0wLjk0YzEuNDM0LDAsMi41NTEsMS4wMywzLjM1OCwzLjA4NQ0KCWMwLjgxLDIuMDYxLDEuNTIxLDQuMzk4LDIuMTQ2LDYuOTc5YzAuNjM1LDIuNjA4LDEuNDM0LDQuOTQ3LDIuNDI5LDcuMDA3YzAuOTg1LDIuMDU2LDIuMjg3LDMuMDg1LDMuODk2LDMuMDg1DQoJYzEuNzkzLDAsMy4yMjktMC40OCw0LjI5OS0xLjQ2NmMxLjA4NC0wLjk4NSwyLjA1OC0yLjAzNywyLjk2Ni0zLjEwN2MwLjg4Ny0xLjA3NCwxLjkxNi0yLjEwMSwzLjA4Ni0zLjA4NQ0KCWMxLjE3Mi0wLjk4NCwyLjY0Ny0xLjQ4Nyw0LjQ0Mi0xLjQ4N2MxLjc4MiwwLDMuMjI4LDEuMDQ3LDQuMywzLjEwNmMxLjA3MSwyLjA1NiwyLjA1Nyw0LjM3NSwyLjk1NCw2Ljk3OQ0KCWMwLjg5NiwyLjYwMywxLjg4Miw0Ljk0NSwyLjk2Niw3LjAwMWMxLjA3LDIuMDU1LDIuNTkzLDMuMDg1LDQuNTYyLDMuMDg1YzEuOTY4LDAsMy40NTctMC42OCw0LjQ0MS0yLjAxNg0KCWMwLjk4NC0xLjM1NCwxLjkyNy0yLjgxOCwyLjgyNC00LjQzOGMwLjg5Ni0xLjYxOSwxLjkyNC0zLjA4NSwzLjA5Ni00LjQ0M2MxLjE1OC0xLjMzNSwyLjgyMi0yLjAxNSw0Ljk2Ny0yLjAxNQ0KCWMyLjE1NCwwLDMuOTM4LDAuOTg1LDUuMzgzLDIuOTU1YzEuNDMzLDEuOTkyLDIuOTEsNC4xMzgsNC40MzEsNi40NTNjMS41MjIsMi4zNDQsMy4xODQsNC40ODcsNC45NzksNi40NTkNCgljMS43ODMsMS45NjksNC4yMTMsMi45NTMsNy4yNTQsMi45NTNjMi44NjcsMCw1LjI1Mi0wLjk4NCw3LjEzNi0yLjk1M2MxLjg4Mi0xLjk3MiwzLjU3Ni00LjExNSw1LjEwNi02LjQ1OQ0KCWMxLjUyMi0yLjMxNSwzLjAwMS00LjQ2MSw0LjQzMy02LjQ1M2MxLjQzNC0xLjk3LDMuMjI5LTIuOTU1LDUuMzg1LTIuOTU1YzIuMTQ1LDAsMy44MDcsMC42OCw0Ljk2NywyLjAxNQ0KCWMxLjE3MiwxLjM1OCwyLjE5OSwyLjgyNCwzLjA5Niw0LjQ0M2MwLjg5OCwxLjYxOSwxLjg0LDMuMDg1LDIuODIyLDQuNDM4YzAuOTg0LDEuMzM2LDIuNDYyLDIuMDE2LDQuNDQzLDIuMDE2DQoJYzEuOTcsMCwzLjQ5LTEuMDMsNC41NjItMy4wODVjMS4wODItMi4wNTYsMi4wNTgtNC4zOTgsMi45NjYtNy4wMDFjMC44ODctMi42MDQsMS44ODMtNC45MjYsMi45NTUtNi45NzkNCgljMS4wNjktMi4wNjEsMi41MDQtMy4xMDYsNC4yOTktMy4xMDZzMy4yMjcsMC41MDMsNC4yOTksMS40ODdjMS4wODQsMC45ODQsMi4xMTEsMi4wMTEsMy4wOTgsMy4wODUNCgljMC45ODQsMS4wNywyLjAxMiwyLjEyMiwzLjA5NiwzLjEwN2MxLjA3MiwwLjk4NCwyLjQyLDEuNDY2LDQuMDI3LDEuNDY2YzEuNzk1LDAsMy4xMzktMS4wMjksNC4wMzYtMy4wODUNCgljMC44OTYtMi4wNiwxLjY5Ny00LjM5NiwyLjQxOS03LjAwN2MwLjcxLTIuNTgxLDEuNDMyLTQuOTIsMi4xNTQtNi45NzljMC43MTMtMi4wNTUsMS43ODEtMy4wODUsMy4yMjktMy4wODUNCgljMS40MzIsMCwyLjUwNSwwLjMwOCwzLjIyOCwwLjk0YzAuNzExLDAuNjE2LDEuMjkxLDEuMjksMS43NDEsMi4wMTVjMC40NDUsMC43MjUsMC43NjUsMS4zODEsMC45MzksMi4wMTYNCgljMC4xNzUsMC42MzQsMC40NDgsMC45MzksMC44MDksMC45MzljMS40MzYsMCwyLjE1Ni0xLjk3MSwyLjE1Ni01Ljkxdi0yMC4xNzRjMC01LjczMi0zLjU4OS0xMC44NTQtMTAuNzU2LTE1LjMxNXY2LjE3DQoJYzAsNC4xMzctMi4wMjEsNy45NC02LjA1LDExLjQyMmMtNC4wMzgsMy40OTktOS41MTEsNi41ODgtMTYuNDAxLDkuMjc2Yy02LjkwMiwyLjY5My0xNS4wMjEsNC44MTYtMjQuMzQ0LDYuMzIzDQoJYy05LjMyLDEuNTM0LTE5LjI2OCwyLjI5OC0yOS44NDgsMi4yOThjLTEwLjU2OCwwLTIwLjUyNC0wLjc2NC0yOS44MzYtMi4yOThjLTkuMzMyLTEuNTA3LTE3LjQ4Mi0zLjYzLTI0LjQ3Ni02LjMyMw0KCWMtNi45OTEtMi42ODgtMTIuNTA1LTUuNzc3LTE2LjUzMi05LjI3NmMtNC4wMzctMy40OC02LjA1LTcuMjg1LTYuMDUtMTEuNDIydi02LjE3Yy0zLjQxNCwyLjE0NS02LjA1MSw0LjUyNy03LjkzNCw3LjEwOA0KCWMtMS44ODIsMi42MDQtMi44MjIsNS4zMzgtMi44MjIsOC4yMDd2MjAuMTc0SDE0Ljc5NHogTTIzLjY2NywxMDcuMDI3YzAsMy43NjMsMC42MjUsNS42NDQsMS44ODMsNS42NDQNCgljMC4zNTEsMCwwLjYyMy0wLjMwNywwLjc5OC0wLjkzOGMwLjE4OC0wLjYzNiwwLjQ1LTEuMjQ2LDAuODExLTEuODgxYzAuMzYxLTAuNjQsMC44NTQtMS4yNSwxLjQ3OC0xLjg4NQ0KCWMwLjYzNy0wLjYzNCwxLjY2NC0wLjkzOCwzLjA5Ni0wLjkzOGMxLjI0OCwwLDIuMjQ0LDAuOTgzLDIuOTU1LDIuOTU0YzAuNzIzLDEuOTcsMS4zNDgsNC4xNTQsMS44ODIsNi41ODQNCgljMC41MzYsMi40MzMsMS4yMTQsNC42MTksMi4wMjQsNi41ODhjMC43OTgsMS45NzEsMi4wMTUsMi45NTUsMy42MjIsMi45NTVjMS42MTgsMCwyLjg2Ni0wLjQzOCwzLjc2NS0xLjMzNg0KCWMwLjg5Ni0wLjg5NiwxLjc5My0xLjkyNiwyLjY5MS0zLjEwN2MwLjg5Ni0xLjE2LDEuODgxLTIuMTg2LDIuOTYzLTMuMDg1YzEuMDcxLTAuODk1LDIuNDItMS4zMzUsNC4wMjYtMS4zMzUNCgljMS42MTksMCwyLjg2NywxLjAyOSwzLjc2NSwzLjA4NGMwLjg5NiwyLjA2MiwxLjc1LDQuMzEzLDIuNTU5LDYuNzE5YzAuODAxLDIuNDMxLDEuNjk4LDQuNjE4LDIuNjkxLDYuNTg4DQoJYzAuOTc3LDEuOTcyLDIuMzYyLDIuOTU1LDQuMTU3LDIuOTU1YzEuNzk0LDAsMy4xNDItMC42MTUsNC4wMzktMS44ODVjMC44OTYtMS4yNDUsMS43NTEtMi42ODgsMi41NjItNC4yODUNCgljMC43OTktMS42MjMsMS42OTUtMy4wNDUsMi42OC00LjMxMmMwLjk4NC0xLjI0NiwyLjQ2My0xLjg4Niw0LjQ0MS0xLjg4NmMxLjk3LDAsMy41NzYsMC45NDQsNC44MzYsMi44MjQNCgljMS4yNiwxLjg4NSwyLjU2MiwzLjkzOSwzLjkwNSw2LjE5MmMxLjMzNiwyLjIzNSwyLjg1NSw0LjI5LDQuNTYyLDYuMTdjMS43MDcsMS44ODUsMy45MDUsMi44MjUsNi41ODYsMi44MjUNCgljMi42OSwwLDQuODkxLTAuOTQsNi41OTgtMi44MjVjMS42OTctMS44OCwzLjIxNy0zLjkzNSw0LjU2My02LjE3YzEuMzQ1LTIuMjUzLDIuNjQ2LTQuMzEsMy45MDYtNi4xOTINCgljMS4yNDQtMS44OCwyLjg2NS0yLjgyNCw0LjgzNC0yLjgyNHMzLjQ0NSwwLjY0LDQuNDQyLDEuODg2YzAuOTc0LDEuMjY4LDEuODgyLDIuNjg4LDIuNjgxLDQuMzEyDQoJYzAuODA5LDEuNTk4LDEuNjY0LDMuMDQsMi41NjEsNC4yODVjMC44OTcsMS4yNywyLjIzLDEuODg1LDQuMDI1LDEuODg1YzEuNzk0LDAsMy4xODQtMC45ODMsNC4xNjktMi45NTUNCgljMC45ODMtMS45NywxLjg4Mi00LjE1NywyLjY5LTYuNTg4YzAuODExLTIuNDA0LDEuNjUyLTQuNjU3LDIuNTYxLTYuNzE5YzAuODg3LTIuMDU1LDIuMTQ2LTMuMDg0LDMuNzY2LTMuMDg0DQoJYzEuNjA3LDAsMi45MDksMC40NCwzLjg5NiwxLjMzNWMwLjk4MywwLjg5OSwxLjkyNCwxLjkyNSwyLjgyMSwzLjA4NWMwLjg5NiwxLjE4NCwxLjc5NCwyLjIxMywyLjY5MSwzLjEwNw0KCWMwLjg5NiwwLjg5OCwyLjE0NiwxLjMzNiwzLjc2NCwxLjMzNmMxLjYwNywwLDIuODI0LTAuOTg0LDMuNjM1LTIuOTU1YzAuNzk4LTEuOTY5LDEuNTIxLTQuMTU1LDIuMTQzLTYuNTg4DQoJYzAuNjM3LTIuNDMsMS4zMDMtNC42MTQsMi4wMjYtNi41ODRjMC43MTEtMS45NzEsMS42OTItMi45NTQsMi45NTItMi45NTRjMS4yNDYsMCwyLjE4NywwLjMwNiwyLjgyMiwwLjkzOA0KCWMwLjYyMywwLjYzNSwxLjExNSwxLjI0NSwxLjQ3OSwxLjg4NWMwLjM1OSwwLjYzNSwwLjYyMywxLjI0NSwwLjgxLDEuODgxYzAuMTc3LDAuNjMzLDAuNDQ3LDAuOTM4LDAuODEsMC45MzgNCgljMS40MzQsMCwyLjE0NS0xLjg4MSwyLjE0NS01LjY0NFY4Ny45MjNjMC01LjAwOS0zLjIyNy05LjkzNC05LjY4My0xNC43OXY2LjE5MmMwLDMuNzY0LTEuNzgzLDcuMzUzLTUuMzcyLDEwLjc2Ng0KCWMtMy41OSwzLjM5Mi04LjUxNCw2LjM0Ny0xNC43OTMsOC44NTljLTYuMjcxLDIuNTE5LTEzLjYyMSw0LjQ4OC0yMi4wNDUsNS45MDljLTguNDI2LDEuNDQyLTE3LjM4NSwyLjE2OC0yNi44OTYsMi4xNjgNCgljLTkuNDk1LDAtMTguNDU2LTAuNzI2LTI2Ljg4Mi0yLjE2OGMtOC40MjUtMS40MjEtMTUuNzc3LTMuMzkyLTIyLjA0Ni01LjkwOWMtNi4yODEtMi41MTUtMTEuMjE0LTUuNDY5LTE0Ljc5MS04Ljg1OQ0KCWMtMy41ODktMy40MTMtNS4zODQtNy4wMDItNS4zODQtMTAuNzY2di02LjE5MmMtNi40NDQsNC44NTYtOS42NzQsOS43ODEtOS42NzQsMTQuNzlWMTA3LjAyN0wyMy42NjcsMTA3LjAyN3ogTTMxLjQ1OCw2MS4wMw0KCWMwLDMuNTg5LDAuNjM1LDUuMzg0LDEuODgzLDUuMzg0YzAuMzU5LDAsMC42MzQtMC4yNjYsMC44MS0wLjgxYzAuMTc2LTAuNTI2LDAuNDA0LTEuMTYsMC42NzctMS44ODYNCgljMC4yNjQtMC42OTYsMC43MTUtMS4zMywxLjMzNi0xLjg3OWMwLjYzNS0wLjUyNiwxLjQ4OS0wLjgxMSwyLjU2Mi0wLjgxMWMxLjA2OCwwLDEuOTI0LDAuOTQsMi41NDcsMi44MjQNCgljMC42MzcsMS44ODEsMS4yNiw0LjAwMywxLjg4Myw2LjMyMmMwLjYzNywyLjMzOSwxLjMwMSw0LjQ0NCwyLjAyMyw2LjMyM2MwLjcxMywxLjg3OSwxLjc4NSwyLjgyNCwzLjIyOSwyLjgyNA0KCWMxLjI0OCwwLDIuMzE4LTAuNDQxLDMuMjI4LTEuMzM2YzAuODg3LTAuODk5LDEuNzM5LTEuODQsMi41NS0yLjgyNHMxLjY1My0xLjkyNSwyLjU2Mi0yLjgxOWMwLjg4NS0wLjg5OCwyLjA1Ni0xLjM1NywzLjQ4OS0xLjM1Nw0KCWMxLjQzMywwLDIuNTkzLDAuOTM4LDMuNSwyLjgyNGMwLjg4OCwxLjg4LDEuNjk2LDMuOTM2LDIuNDE4LDYuMTkyYzAuNzEzLDIuMjI5LDEuNDc4LDQuMjg1LDIuMjg2LDYuMTY5DQoJYzAuODAxLDEuODgsMi4wMTUsMi44MTksMy42MjIsMi44MTljMS42MTksMCwyLjgyMi0wLjU2NiwzLjYzMy0xLjcyOGMwLjgxLTEuMTgzLDEuNTYzLTIuNDczLDIuMjg1LTMuOTE2DQoJYzAuNzEzLTEuNDIyLDEuNTIyLTIuNzEzLDIuNDItMy44OTVjMC44OTctMS4xNiwyLjI0Mi0xLjc1LDQuMDM2LTEuNzVjMS43ODMsMCwzLjI3MSwwLjg1LDQuNDMzLDIuNTU5DQoJYzEuMTczLDEuNzA1LDIuMzc1LDMuNjM1LDMuNjMyLDUuNzc5YzEuMjYsMi4xNjIsMi41OTQsNC4wODgsNC4wMzksNS43NzNjMS40MzIsMS43MDksMy4zOTksMi41Niw1LjkwNSwyLjU2DQoJYzIuMzMyLDAsNC4yNTctMC44NTEsNS43ODctMi41NmMxLjUyMy0xLjY4NywyLjg2Ny0zLjYxMSw0LjAyNy01Ljc3M2MxLjE3Mi0yLjE0NiwyLjMzLTQuMDc0LDMuNTAxLTUuNzc5DQoJYzEuMTU5LTEuNzA5LDIuNjQ4LTIuNTU5LDQuNDM0LTIuNTU5YzEuNzkzLDAsMy4xODMsMC41OSw0LjE2OCwxLjc1YzAuOTgzLDEuMTgyLDEuODM4LDIuNDczLDIuNTU5LDMuODk1DQoJYzAuNzEzLDEuNDQzLDEuNDc5LDIuNzMzLDIuMjg3LDMuOTE2YzAuNzk5LDEuMTYsMi4wMTYsMS43MjgsMy42MzQsMS43MjhjMS42MDgsMCwyLjgyMi0wLjkzOSwzLjYyLTIuODE5DQoJYzAuODEtMS44ODQsMS41NzYtMy45MzgsMi4yODctNi4xNjljMC43MTMtMi4yNTgsMS41MjItNC4zMTIsMi40MTktNi4xOTJjMC44OTctMS44ODYsMi4wNjYtMi44MjQsMy41MDEtMi44MjQNCgljMS40MzIsMCwyLjU5NCwwLjQ1OSwzLjQ5LDEuMzU3YzAuODk2LDAuODk2LDEuNzA2LDEuODM1LDIuNDI4LDIuODE5YzAuNzExLDAuOTg0LDEuNTIzLDEuOTI1LDIuNDIsMi44MjQNCgljMC44OTYsMC44OTUsMi4wNTUsMS4zMzYsMy40OSwxLjMzNmMxLjQzMiwwLDIuNTA0LTAuOTQ1LDMuMjI3LTIuODI0YzAuNzExLTEuODc5LDEuMzktMy45ODQsMi4wMTMtNi4zMjMNCgljMC42MzctMi4zMTksMS4yNi00LjQ0MSwxLjg4My02LjMyMmMwLjYzNi0xLjg4NCwxLjQ4OC0yLjgyNCwyLjU2Mi0yLjgyNGMxLjA3MiwwLDEuOTI0LDAuMjgzLDIuNTUsMC44MTENCgljMC42MzQsMC41NDksMS4wODEsMS4xODMsMS4zNDUsMS44NzljMC4yNzMsMC43MjYsMC40OTIsMS4zNTgsMC42NzksMS44ODZjMC4xNzcsMC41NDQsMC40MzgsMC44MSwwLjgsMC44MQ0KCWMxLjA4MiwwLDEuNjE4LTEuNzk1LDEuNjE4LTUuMzg0VjQzLjAyYzAtMy43NjYtMS43MDctNy4zNTQtNS4xMS0xMC43NDRjLTMuNC0zLjQxMy04LjExOC02LjM2Ny0xNC4xMTItOC44ODENCgljLTYuMDA3LTIuNDk2LTEzLjA0MS00LjU3NC0yMS4xMDQtNi4xNzZjLTguMDc0LTEuNjItMTYuNzcyLTIuNTE1LTI2LjA4My0yLjY4OGMxLjk2OCwwLjg5NSwzLjUzMSwyLjE4OCw0LjcwNCwzLjg5NQ0KCWMxLjE2MSwxLjcwOSwxLjczOSwzLjYzNSwxLjczOSw1Ljc3OGMwLDMuMDQxLTEuMDI5LDUuNTk5LTMuMDg3LDcuNjU5Yy0yLjA2NCwyLjA1NS00LjYxNiwzLjEwNi03LjY2OSwzLjEwNg0KCWMtMy4wNDEsMC01LjYwMy0xLjA1My03LjY1OC0zLjEwNmMtMi4wNjUtMi4wNjItMy4wOTYtNC42MTgtMy4wOTYtNy42NTljMC00LjY2MywyLjA2OC03Ljg3OSw2LjE5LTkuNjczDQoJYy05LjMxOSwwLjE3NS0xOC4wMiwxLjA2OC0yNi4wODIsMi42ODhjLTguMDYzLDEuNjAyLTE1LjExLDMuNjgtMjEuMTA0LDYuMTc2Yy02LjAxOSwyLjUxNC0xMC43MjMsNS40NjgtMTQuMTI2LDguODgxDQoJYy0zLjQsMy4zOTEtNS4xMDcsNi45NzktNS4xMDcsMTAuNzQ0djE4LjAxSDMxLjQ1OHogTTEwMi40NDMsNzEuMjQ5Yy0xLjc5NSwwLTIuNjgtMC44NzMtMi42OC0yLjY2OA0KCWMwLTEuNzk0LDAuODg1LTIuNjkzLDIuNjgtMi42OTNjOS41MSwwLDE4LjE5NS0wLjY3OSwyNi4wODUtMi4wMzJjNy44ODgtMS4zMzUsMTQuNjA1LTMuMDksMjAuMTc1LTUuMjI5DQoJYzUuNTQ4LTIuMTQ2LDkuODQ5LTQuNjE5LDEyLjg5OS03LjM5N2MzLjA1My0yLjc3OSw0LjU3Mi01LjUxNSw0LjU3Mi04LjIwN2MwLTEuNjE5LDAuODExLTIuNDA2LDIuNDE4LTIuNDA2DQoJYzEuNzkzLDAsMi42OTEsMC43ODcsMi42OTEsMi40MDZjMCw0LjEzNy0xLjc5NSw3Ljk0NC01LjM4NCwxMS40MjJjLTMuNTg5LDMuNTA0LTguNzg0LDYuNDk5LTE1LjU4OSw5LjAxOA0KCWMtNi40NTUsMi41MTktMTMuNzY3LDQuNDQyLTIxLjkxNiw1Ljc3N0MxMjAuMjM0LDcwLjU5MiwxMTEuNTg5LDcxLjI0OSwxMDIuNDQzLDcxLjI0OXogTTEwNi43NTUsMTguNTU1DQoJYy0xLjQ0NCwwLTIuMTU1LDAuNzI2LTIuMTU1LDIuMTQ2YzAsMS4yNjksMC43MTEsMS44ODQsMi4xNTUsMS44ODRjMS40MzQsMCwyLjE0NC0wLjYxNSwyLjE0NC0xLjg4NA0KCUMxMDguODk4LDE5LjI4LDEwOC4xODgsMTguNTU1LDEwNi43NTUsMTguNTU1eiIvPg0KPC9zdmc+',
 ];
 
-$log = [];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -495,7 +592,6 @@ $log = [];
         pre {
             white-space: pre-wrap; /* Since CSS 2.1 */
             white-space: -moz-pre-wrap; /* Mozilla, since 1999 */
-            white-space: -pre-wrap; /* Opera 4-6 */
             white-space: -o-pre-wrap; /* Opera 7 */
             word-wrap: break-word; /* Internet Explorer 5.5+ */
             height: 200px;
@@ -721,6 +817,42 @@ $log = [];
 <div class="container">
 
     <div id="splash">
+        <form action="" class="row" id="config-form">
+            <div class="col-lg-6">
+                <fieldset>
+                    <legend>Path</legend>
+                    <div class="form-group">
+                        <label for="app_dir">App install dir</label>
+                        <div class="input-group">
+                            <div class="input-group-addon" id="current_dir"><?php echo $oven->currentDir; ?></div>
+                            <input type="text" class="form-control" id="app_dir" name="app_dir" value="<?php echo $oven->appDir; ?>" />
+                        </div>
+                    </div>
+                </fieldset>
+            </div>
+            <div class="col-lg-6">
+                <fieldset>
+                    <legend>Datasource</legend>
+                    <div class="form-group">
+                        <label for="path">Host</label>
+                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                    </div>
+                    <div class="form-group">
+                        <label for="path">Username</label>
+                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                    </div>
+                    <div class="form-group">
+                        <label for="path">Password</label>
+                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                    </div>
+                    <div class="form-group">
+                        <label for="path">Database</label>
+                        <input type="text" class="form-control" id="exampleInputEmail1" placeholder="Email" name="path" />
+                    </div>
+                </fieldset>
+            </div>
+            <button type="submit">Install</button>
+        </form>
         <p class="starting"><a href="javascript:;" id="start"><img src="<?php echo $svgs['knob'] ?>" /><br />Click to install CakePHP</a></p>
     </div>
 
@@ -747,7 +879,7 @@ $log = [];
         </div>
 
         <div class="col-md-6">
-            <a href="<?php echo $installer->getAppUrl() ?>" class="cake-button on-finish" target="_blank" style="display: none">
+            <a href="<?php echo $oven->appDir ?>" class="cake-button on-finish" id="go_to_your_app" target="_blank" style="display: none">
                 <img src="<?php echo $svgs['go-to-your-app'] ?>" />
                 <span>GO TO YOUR <br class="hide-me">CAKEPHP APP</span>
             </a>
@@ -763,7 +895,7 @@ $log = [];
                 <img src="<?php echo $svgs['progress-8'] ?>" class="p8" />
                 <img src="<?php echo $svgs['progress-9'] ?>" class="p9" />
             </div>
-            <p class="path"><?php echo $installer->installDir ?></p>
+            <p class="path" id="install_dir"><?php echo $oven->installDir ?></p>
             <pre id="log"></pre>
 
         </div>
@@ -794,18 +926,27 @@ $log = [];
                 var $requirementsList = $('.requirements-list');
                 var $composerList = $('.composer-list');
                 var $cakeList = $('.cake-list');
+                var appDir = $('#app_dir').val();
+                var currentDir = $('#current_dir').text();
 
-                runRequirementsSteps($requirementsList, $composerList, $cakeList);
+                $('#go_to_your_app').attr('href', appDir);
+                $('#install_dir').text(currentDir + appDir);
+
+                runRequirementsSteps($requirementsList, $composerList, $cakeList, appDir);
             }, 1000);
 
             return false;
-        })
+        });
     });
 
-    function runRequirementsSteps($list, $composerList, $cakeList) {
+    function runRequirementsSteps($list, $composerList, $cakeList, dir) {
         runSteps(
             'requirements',
             [
+                {
+                    title: 'Checking path...',
+                    url: 'oven.php?action=checkPath&dir=' + encodeURI(dir)
+                },
                 {
                     title: 'Checking PHP version...',
                     url: 'oven.php?action=checkPhp'
@@ -820,14 +961,10 @@ $log = [];
                 },
                 {
                     title: 'Checking intl extension...',
-                    url: 'oven.php?action=checkIntl'
-                },
-                {
-                    title: 'Checking path...',
-                    url: 'oven.php?action=checkPath',
+                    url: 'oven.php?action=checkIntl',
                     success: function(response) {
                         $('#progress').attr('class', '').addClass('progress-2');
-                        runComposerSteps($composerList, $cakeList);
+                        runComposerSteps($composerList, $cakeList, dir);
                     }
                 }
             ],
@@ -835,7 +972,7 @@ $log = [];
         );
     }
 
-    function runComposerSteps($list, $cakeList) {
+    function runComposerSteps($list, $cakeList, dir) {
         $('#composer-list-wrapper').show();
         runSteps(
             'composer',
@@ -845,7 +982,7 @@ $log = [];
                     url: 'oven.php?action=installComposer',
                     success: function(response) {
                         $('#progress').attr('class', '').addClass('progress-3');
-                        runCakeSteps($cakeList);
+                        runCakeSteps($cakeList, dir);
                     }
                 }
             ],
@@ -853,19 +990,23 @@ $log = [];
         );
     }
 
-    function runCakeSteps($list) {
+    function runCakeSteps($list, dir) {
         $('#cake-list-wrapper').show();
         runSteps(
             'cake',
             [
                 {
                     title: 'Creating CakePHP project...',
-                    url: 'oven.php?action=createProject',
+                    url: 'oven.php?action=createProject&dir=' + encodeURI(dir),
                     success: function(response) {
+                        var steps = response.steps;
+                        steps.push({
+                            title: 'Finalising...',
+                            url: 'oven.php?action=finalise&dir=' + encodeURI(dir)
+                        });
                         runSteps('deps', response.steps, $list);
                     },
                     failure: function(response) {
-                        console.log(response);
                         if (response.message && response.message.indexOf('installed')) {
                             $('li:last i', $list).removeClass('fa-times fa-fw text-danger').addClass('fa-check fa-fw text-success');
                             $('li:last span', $list).removeClass('text-danger');
@@ -890,6 +1031,7 @@ $log = [];
 
             $.ajaxq(queue, {
                 url: step.url,
+                dataType: 'json',
                 cache: false,
                 beforeSend: function (jqXHR, settings) {
                     $listItem
