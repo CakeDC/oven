@@ -21,6 +21,7 @@ class Oven {
     public $currentDir;
     public $composerHomeDir;
     public $composerFilename;
+    public $composerPath;
     public $appDir = 'app';
 
     const REQUIREMENTS_DELAY = 500000;
@@ -31,6 +32,10 @@ class Oven {
 
         if (isset($_GET['dir'])) {
             $this->appDir = urldecode($_GET['dir']);
+        }
+
+        if (!$this->composerPath = $this->getComposerPathFromQuery()) {
+            $this->composerPath = $this->currentDir . $this->composerFilename;
         }
 
         $this->installDir = $this->currentDir . $this->appDir;
@@ -50,6 +55,32 @@ class Oven {
                 exit(0);
             }
         }
+    }
+
+    public function getComposerPathFromQuery()
+    {
+        $var = 'composerPath';
+        if (!isset($_GET[$var]) || empty($_GET[$var])) {
+            return false;
+        }
+
+        if (!is_readable($path = urldecode($_GET[$var]))) {
+            throw new Exception("Composer installation not found at {$path}");
+        }
+
+        return $path;
+    }
+
+    public function getComposerSystemPath()
+    {
+        $paths = explode(':', getenv('PATH'));
+        foreach ($paths as $path) {
+            if (is_readable($composerPath = $path . DIRECTORY_SEPARATOR . 'composer.phar')) {
+                return $composerPath;
+            }
+        }
+
+        return false;
     }
 
     protected function runCheckPhp()
@@ -98,24 +129,28 @@ class Oven {
     {
         usleep(self::REQUIREMENTS_DELAY);
 
-        if (file_exists($this->installDir)) {
-            if (!is_dir($this->installDir)) {
-                throw new Exception($this->installDir . ' is not a directory');
-            }
-
-            if (!is_writable($this->installDir)) {
-                throw new Exception($this->installDir . ' directory is NOT writable');
-            }
-        } elseif (!is_writable(dirname($this->installDir))) {
-            throw new Exception(dirname($this->installDir) . ' directory is NOT writable');
-        }
+        $this->checkPath($this->installDir);
 
         return ['message' => $this->installDir . ' directory is writable'];
     }
 
+    protected function checkPath($path) {
+        if (file_exists($path)) {
+            if (!is_dir($path)) {
+                throw new Exception("{$path} is not a directory");
+            }
+
+            if (!is_writable($path)) {
+                throw new Exception("{$path} directory is NOT writable");
+            }
+        } elseif (!is_writable(dirname($path))) {
+            throw new Exception(dirname($path) . ' directory is NOT writable');
+        }
+    }
+
     protected function runFinalise()
     {
-        $this->runCheckPath();
+        $this->checkPath($this->installDir);
         $this->restoreScripts();
 
         $log = $this->runComposer([
@@ -160,7 +195,7 @@ class Oven {
             throw new Exception('CakePHP app already installed');
         }
 
-        $this->runCheckPath();
+        $this->checkPath($this->installDir);
 
         if (file_exists($this->installDir) && $this->installDir != $this->currentDir && !$this->isDirEmpty($this->installDir)) {
             throw new Exception("{$this->installDir} is not empty");
@@ -185,6 +220,8 @@ class Oven {
         $this->clearDependencies();
         $dependencies = $this->getDependencies();
 
+        $composerPath = (string)$this->getComposerPathFromQuery();
+
         $steps = [];
         foreach ($dependencies as $req => $packages) {
             foreach ($packages as $package => $version) {
@@ -192,7 +229,7 @@ class Oven {
                 $dev = $req == 'require-dev';
                 $steps[] = [
                     'title' => $package == 'php' ? "Requiring platform {$package}:{$version}..." : "Installing {$package}:{$version}...",
-                    'url' => "oven.php?" . http_build_query(compact('action', 'package', 'version', 'dev', 'dir'))
+                    'url' => "oven.php?" . http_build_query(compact('action', 'package', 'version', 'dev', 'dir', 'composerPath'))
                 ];
             }
         }
@@ -210,7 +247,7 @@ class Oven {
         $version = $_GET['version'];
         $dev = isset($_GET['dev']) && $_GET['dev'];
 
-        $this->runCheckPath();
+        $this->checkPath($this->installDir);
 
         return [
             'message' => "{$package}:{$version} installed",
@@ -262,10 +299,6 @@ class Oven {
     }
 
     public function getComposerVersion() {
-        if (!file_exists($this->currentDir . $this->composerFilename)) {
-            return false;
-        }
-
         $output = $this->runComposer([
             '--version' => true,
         ]);
@@ -275,13 +308,15 @@ class Oven {
 
     protected function requireComposer()
     {
-        require_once "phar://{$this->currentDir}{$this->composerFilename}/src/bootstrap.php";
+        require_once "phar://{$this->composerPath}/src/bootstrap.php";
     }
 
     protected function runComposer($input) {
         $this->requireComposer();
 
-        putenv("COMPOSER_HOME={$this->composerHomeDir}");
+        if (!getenv('COMPOSER_HOME')) {
+            putenv("COMPOSER_HOME={$this->composerHomeDir}");
+        }
         putenv("OSTYPE=OS400");
 
         $input = new \Symfony\Component\Console\Input\ArrayInput($input);
@@ -497,7 +532,7 @@ try {
     $oven->run();
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['message' => $e->getMessage()]);
+    echo json_encode(['message' => htmlentities($e->getMessage())]);
     exit(0);
 }
 
@@ -763,6 +798,11 @@ $svgs = [
         #progress.progress-8 img.p8 { display: inline; }
         #progress.progress-9 img.p9 { display: inline; transition: all .3s ease .3s; }
 
+        #composer_path {
+            width: 175px;
+            display: inline-block;
+        }
+
         @media (min-width: 1200px) {
             .container {
                 width: 970px;
@@ -829,8 +869,23 @@ $svgs = [
                         </div>
                     </div>
                 </fieldset>
-            </div>
-            <div class="col-lg-6">
+                <fieldset>
+                    <legend>Composer</legend>
+                    <?php $composerPath = $oven->getComposerSystemPath(); ?>
+                    <div class="radio">
+                        <label for="install_composer1">
+                            <input type="radio" name="install_composer" id="install_composer1" value="1" <?php if (!$composerPath) echo 'checked'; ?>>
+                            Install Composer to current dir
+                        </label>
+                    </div>
+                    <div class="radio">
+                        <label for="install_composer0">
+                            <input type="radio" name="install_composer" id="install_composer0" value="0" required <?php if ($composerPath) echo 'checked'; ?>>
+                            Use existing composer installation. Path:
+                        </label>
+                        <input type="text" class="form-control" id="composer_path" name="composer_path" value="<?php echo $composerPath; ?>" required />
+                    </div>
+                </fieldset>
                 <fieldset>
                     <legend>Datasource</legend>
                     <div class="form-group">
@@ -851,9 +906,10 @@ $svgs = [
                     </div>
                 </fieldset>
             </div>
-            <button type="submit">Install</button>
+            <div class="col-lg-6">
+                <p class="starting"><a href="javascript:;" id="start"><img src="<?php echo $svgs['knob'] ?>" /><br />Click to install CakePHP</a></p>
+            </div>
         </form>
-        <p class="starting"><a href="javascript:;" id="start"><img src="<?php echo $svgs['knob'] ?>" /><br />Click to install CakePHP</a></p>
     </div>
 
     <div id="installation" class="row" style="display:none">
@@ -915,10 +971,18 @@ $svgs = [
 </script>
 <script>
     $(function(){
-        $('#start').click(function(e){
+        $('#start').on('click', function(e) {
             e.preventDefault();
 
-            $(this).addClass('rotate');
+            $('#config-form').submit();
+
+            return false;
+        });
+
+        $('#config-form').on('submit', function(e) {
+            e.preventDefault();
+
+            $('#start').addClass('rotate');
             setTimeout(function(){
                 $('#splash').hide();
                 $('#installation').show();
@@ -937,6 +1001,10 @@ $svgs = [
 
             return false;
         });
+
+        $('input[name="install_composer"]', '#config-form').on('change', function() {
+            $('#composer_path').attr('disabled', $('input:checked[name="install_composer"]').val() == 1 ? 'disabled' : false);
+        }).filter(':checked').triggerHandler('change');
     });
 
     function runRequirementsSteps($list, $composerList, $cakeList, dir) {
@@ -974,15 +1042,26 @@ $svgs = [
 
     function runComposerSteps($list, $cakeList, dir) {
         $('#composer-list-wrapper').show();
+
+        var title = 'Installing composer...';
+        var url = 'oven.php?action=installComposer';
+
+        var composerPath = false;
+        if ($('input:checked[name="install_composer"]').val() == 0) {
+            composerPath = $('#composer_path').val();
+            title = 'Checking composer installation...';
+            url += '&composerPath=' + encodeURI(composerPath);
+        }
+
         runSteps(
             'composer',
             [
                 {
-                    title: 'Installing composer...',
-                    url: 'oven.php?action=installComposer',
+                    title: title,
+                    url: url,
                     success: function(response) {
                         $('#progress').attr('class', '').addClass('progress-3');
-                        runCakeSteps($cakeList, dir);
+                        runCakeSteps($cakeList, dir, composerPath);
                     }
                 }
             ],
@@ -990,19 +1069,19 @@ $svgs = [
         );
     }
 
-    function runCakeSteps($list, dir) {
+    function runCakeSteps($list, dir, composerPath) {
         $('#cake-list-wrapper').show();
         runSteps(
             'cake',
             [
                 {
                     title: 'Creating CakePHP project...',
-                    url: 'oven.php?action=createProject&dir=' + encodeURI(dir),
+                    url: 'oven.php?action=createProject&dir=' + encodeURI(dir) + '&composerPath=' + encodeURI(composerPath),
                     success: function(response) {
                         var steps = response.steps;
                         steps.push({
                             title: 'Finalising...',
-                            url: 'oven.php?action=finalise&dir=' + encodeURI(dir)
+                            url: 'oven.php?action=finalise&dir=' + encodeURI(dir) + '&composerPath=' + encodeURI(composerPath)
                         });
                         runSteps('deps', response.steps, $list);
                     },
