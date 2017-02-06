@@ -24,6 +24,11 @@ class Oven {
     public $composerPath;
     public $appDir = 'app';
 
+    protected $_versions = [
+        'stable' => '~3.3-stable',
+        'beta' => '~3.3-beta'
+    ];
+
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
 
@@ -35,19 +40,19 @@ class Oven {
             $this->appDir = $_POST['dir'];
         }
 
-        if (!$this->composerPath = $this->getComposerPathFromQuery()) {
+        $this->composerHomeDir = $this->currentDir . '.composer';
+        $this->composerFilename = 'composer.phar';
+        if (!$this->composerPath = $this->_getComposerPathFromQuery()) {
             $this->composerPath = $this->currentDir . $this->composerFilename;
         }
 
         $this->installDir = $this->currentDir . $this->appDir;
-        $this->composerHomeDir = $this->currentDir . '.composer';
-        $this->composerFilename = 'composer.phar';
     }
 
     public function run()
     {
         if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
-            $action = 'run' . ucfirst($_POST['action']);
+            $action = '_run' . ucfirst($_POST['action']);
             if (method_exists($this, $action)) {
                 header('Content-Type: application/json');
                 $result = $this->$action();
@@ -58,7 +63,32 @@ class Oven {
         }
     }
 
-    public function getComposerPathFromQuery()
+    public function getComposerSystemPath()
+    {
+        $paths = explode(':', getenv('PATH'));
+        foreach ($paths as $path) {
+            $composerPath = $path . DIRECTORY_SEPARATOR . $this->composerFilename;
+            if (is_readable($composerPath)) {
+                return $composerPath;
+            }
+
+            $composerBinaryBath = $path . DIRECTORY_SEPARATOR . pathinfo($this->composerFilename, PATHINFO_FILENAME);
+            if (is_executable($composerBinaryBath)) {
+                return $composerBinaryBath;
+            }
+        }
+
+        return false;
+    }
+
+    protected  function _getComposerVersion()
+    {
+        return $this->_runComposer([
+            '--version' => true,
+        ]);
+    }
+
+    protected  function _getComposerPathFromQuery()
     {
         $var = 'composerPath';
         if (!isset($_POST[$var]) || empty($_POST[$var])) {
@@ -69,26 +99,14 @@ class Oven {
             throw new Exception("Composer installation not found at {$path}");
         }
 
-        if (substr($path, -5) != '.phar') {
-            throw new Exception("Composer installation has to be with .phar extension");
+        if (substr($path, -5) != '.phar' && !is_executable($path)) {
+            throw new Exception("Composer binary is not executable");
         }
 
         return $path;
     }
 
-    public function getComposerSystemPath()
-    {
-        $paths = explode(':', getenv('PATH'));
-        foreach ($paths as $path) {
-            if (is_readable($composerPath = $path . DIRECTORY_SEPARATOR . $this->composerFilename)) {
-                return $composerPath;
-            }
-        }
-
-        return false;
-    }
-
-    protected function updateDatasourceConfig($path, $field, $value)
+    protected function _updateDatasourceConfig($path, $field, $value)
     {
         $config = file_get_contents($path);
         $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '$1' . addslashes($value) . '$2', $config);
@@ -96,7 +114,7 @@ class Oven {
         return file_put_contents($path, $config);
     }
 
-    protected function runCheckPhp()
+    protected function _runCheckPhp()
     {
         usleep(self::REQUIREMENTS_DELAY);
         if (!version_compare(PHP_VERSION, '5.5.9', '>=')) {
@@ -106,7 +124,7 @@ class Oven {
         return ['message' => 'Your version of PHP is 5.5.9 or higher (detected ' . PHP_VERSION . ').'];
     }
 
-    protected function runCheckMbString()
+    protected function _runCheckMbString()
     {
         usleep(self::REQUIREMENTS_DELAY);
         if (!extension_loaded('mbstring')) {
@@ -116,7 +134,7 @@ class Oven {
         return ['message' => 'Your version of PHP has the mbstring extension loaded.'];
     }
 
-    protected function runCheckOpenSSL()
+    protected function _runCheckOpenSSL()
     {
         usleep(self::REQUIREMENTS_DELAY);
         if (extension_loaded('openssl')) {
@@ -128,7 +146,7 @@ class Oven {
         throw new Exception('Your version of PHP does NOT have the openssl or mcrypt extension loaded.');
     }
 
-    protected function runCheckIntl()
+    protected function _runCheckIntl()
     {
         usleep(self::REQUIREMENTS_DELAY);
         if (!extension_loaded('intl')) {
@@ -138,16 +156,17 @@ class Oven {
         return ['message' => 'Your version of PHP has the intl extension loaded.'];
     }
 
-    protected function runCheckPath()
+    protected function _runCheckPath()
     {
         usleep(self::REQUIREMENTS_DELAY);
 
-        $this->checkPath($this->installDir);
+        $this->_checkPath($this->installDir);
 
         return ['message' => $this->installDir . ' directory is writable'];
     }
 
-    protected function checkPath($path) {
+    protected function _checkPath($path)
+    {
         if (file_exists($path)) {
             if (!is_dir($path)) {
                 throw new Exception("{$path} is not a directory");
@@ -161,30 +180,30 @@ class Oven {
         }
     }
 
-    protected function runFinalise()
+    protected function _runFinalise()
     {
-        $this->checkPath($this->installDir);
-        $this->restoreScripts();
+        $this->_checkPath($this->installDir);
+        $this->_restoreScripts();
 
-        $log = $this->runComposer([
+        $log = $this->_runComposer([
             'command' => 'dump-autoload',
             '--no-interaction' => true,
             '--working-dir' => $this->installDir,
-        ])->fetch();
+        ]);
 
         $log .= "\n";
 
-        $log .= $this->runComposer([
+        $log .= $this->_runComposer([
             'command' => 'run-script',
             'script' => 'post-install-cmd',
             '--no-interaction' => true,
             '--working-dir' => $this->installDir,
-        ])->fetch();
+        ]);
 
         $configPath = $this->installDir . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'app.php';
         foreach (['host', 'username', 'password', 'database'] as $field) {
             if (isset($_POST[$field]) && !empty($_POST[$field])) {
-                $this->updateDatasourceConfig($configPath, $field, $_POST[$field]);
+                $this->_updateDatasourceConfig($configPath, $field, $_POST[$field]);
             }
         }
 
@@ -193,15 +212,19 @@ class Oven {
         return compact('log', 'message');
     }
 
-    protected function runInstallComposer()
+    protected function _runInstallComposer()
     {
         $result = [];
-        if (!$version = $this->getComposerVersion()) {
-            $result['log'] = $this->installComposer($this->currentDir, $this->composerFilename);
-            $version = $this->getComposerVersion();
+        if (!is_readable($this->composerPath) || !($version = $this->_getComposerVersion())) {
+            $result['log'] = $this->_installComposer($this->currentDir, $this->composerFilename);
+            $version = $this->_getComposerVersion();
         } else {
             usleep(self::REQUIREMENTS_DELAY);
             $result['log'] = $version;
+        }
+
+        if (strpos($version, 'Composer version') === false) {
+            throw new Exception('Invalid composer installation');
         }
 
         $result['message'] = $version;
@@ -209,15 +232,15 @@ class Oven {
         return $result;
     }
 
-    protected function runCreateProject()
+    protected function _runCreateProject()
     {
-        if ($this->isCakeInstalled($this->installDir)) {
+        if ($this->_isCakeInstalled($this->installDir)) {
             throw new Exception('CakePHP app already installed');
         }
 
-        $this->checkPath($this->installDir);
+        $this->_checkPath($this->installDir);
 
-        if (file_exists($this->installDir) && $this->installDir != $this->currentDir && !$this->isDirEmpty($this->installDir)) {
+        if (file_exists($this->installDir) && $this->installDir != $this->currentDir && !$this->_isDirEmpty($this->installDir)) {
             throw new Exception("{$this->installDir} is not empty");
         }
         if (!file_exists($this->installDir) && !mkdir($this->installDir, 0, true)) {
@@ -228,7 +251,11 @@ class Oven {
             throw new Exception('Invalid app dir ' . $this->installDir);
         }
 
-        $log = $this->createProject($this->installDir, false);
+        $cakeVersion = (isset($_POST['stability']) && array_key_exists($_POST['stability'], $this->_versions))
+            ? $this->_versions[$_POST['stability']]
+            : reset($this->_versions);
+
+        $log = $this->_createProject($this->installDir, false);
 
         $dir = $this->appDir;
 
@@ -236,15 +263,19 @@ class Oven {
             throw new Exception('Error while creating project');
         }
 
-        $this->backupComposerJson();
-        $this->clearDependencies();
-        $dependencies = $this->getDependencies();
+        $this->_backupComposerJson();
+        $this->_clearDependencies();
+        $dependencies = $this->_getDependencies();
 
-        $composerPath = (string)$this->getComposerPathFromQuery();
+        $composerPath = (string)$this->_getComposerPathFromQuery();
 
         $steps = [];
         foreach ($dependencies as $req => $packages) {
             foreach ($packages as $package => $version) {
+                if ($package == 'cakephp/cakephp') {
+                    $version = $cakeVersion;
+                }
+
                 $action = 'installPackage';
                 $dev = $req == 'require-dev';
                 $steps[] = [
@@ -261,21 +292,21 @@ class Oven {
         ];
     }
 
-    protected function runInstallPackage()
+    protected function _runInstallPackage()
     {
         $package = $_POST['package'];
         $version = $_POST['version'];
         $dev = isset($_POST['dev']) && $_POST['dev'];
 
-        $this->checkPath($this->installDir);
+        $this->_checkPath($this->installDir);
 
         return [
             'message' => "{$package}:{$version} installed",
-            'log' => $this->installPackage($package, $version, $dev, $this->installDir)
+            'log' => $this->_installPackage($package, $version, $dev, $this->installDir)
         ];
     }
 
-    protected function installComposer($dir, $filename)
+    protected function _installComposer($dir, $filename)
     {
         putenv("COMPOSER_HOME={$this->composerHomeDir}");
         putenv("OSTYPE=OS400");
@@ -314,45 +345,58 @@ class Oven {
         return $result;
     }
 
-    protected function isCakeInstalled($dir) {
+    protected function _isCakeInstalled($dir)
+    {
         return file_exists($dir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'cakephp' . DIRECTORY_SEPARATOR . 'cakephp' . DIRECTORY_SEPARATOR . 'VERSION.txt');
     }
 
-    public function getComposerVersion() {
-        $output = $this->runComposer([
-            '--version' => true,
-        ]);
-
-        return $output->fetch();
-    }
-
-    protected function requireComposer()
+    protected function _runComposer($input)
     {
-        require_once "phar://{$this->composerPath}/src/bootstrap.php";
-    }
-
-    protected function runComposer($input) {
-        $this->requireComposer();
-
+        putenv("OSTYPE=OS400");
         if (!getenv('COMPOSER_HOME')) {
             putenv("COMPOSER_HOME={$this->composerHomeDir}");
         }
-        putenv("OSTYPE=OS400");
 
-        $input = new \Symfony\Component\Console\Input\ArrayInput($input);
-        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+        if (substr($this->composerPath, -5) == '.phar') {
+            require_once "phar://{$this->composerPath}/src/bootstrap.php";
 
-        $application = new \Composer\Console\Application();
-        $application->setAutoExit(false);
-        $application->run($input, $output);
+            $input = new \Symfony\Component\Console\Input\ArrayInput($input);
+            $output = new \Symfony\Component\Console\Output\BufferedOutput();
 
-        return $output;
+            $application = new \Composer\Console\Application();
+            $application->setAutoExit(false);
+            $application->run($input, $output);
+
+            return $output->fetch();
+        } else {
+            $command = $this->_buildComposerCommand($this->composerPath, $input);
+
+            ob_start();
+            passthru($command);
+
+            return ob_get_clean();
+        }
     }
 
-    protected function createProject($dir, $install = false)
+    protected function _buildComposerCommand($path, $input)
+    {
+        $command = [escapeshellcmd($path)];
+
+        foreach ($input as $k => $v) {
+            if (substr($k, 0, 2) == '--') {
+                $command[] = escapeshellcmd($k . ($v === true ? '' : "={$v}"));
+            } else {
+                $command[] = escapeshellcmd($v);
+            }
+        }
+
+        return implode(' ', $command);
+    }
+
+    protected function _createProject($dir, $install = false)
     {
         $tmpDir = false;
-        if (!$this->isDirEmpty($dir)) {
+        if (!$this->_isDirEmpty($dir)) {
             $tmpDir = __DIR__ . DIRECTORY_SEPARATOR . uniqid();
         }
 
@@ -371,16 +415,17 @@ class Oven {
             ];
         }
 
-        $output = $this->runComposer($input);
+        $output = $this->_runComposer($input);
 
         if ($tmpDir) {
-            $this->moveDir($tmpDir, $dir);
+            $this->_moveDir($tmpDir, $dir);
         }
 
-        return $output->fetch();
+        return $output;
     }
 
-    protected function isDirEmpty($dir) {
+    protected function _isDirEmpty($dir)
+    {
         if (!is_readable($dir)) {
             throw new Exception("{$dir} is NOT readable");
         }
@@ -404,7 +449,7 @@ class Oven {
      * @throws ErrorException
      * @return boolean                    Returns TRUE on success, throws an error otherwise.
      */
-    function moveDir($src, $dest)
+    protected function _moveDir($src, $dest)
     {
         if (!is_dir($src)) {
             throw new InvalidArgumentException('The source passed in does not appear to be a valid directory: [' . $src . ']', 1);
@@ -461,9 +506,9 @@ class Oven {
         return true;
     }
 
-    protected function installPackage($package, $version, $dev, $dir)
+    protected function _installPackage($package, $version, $dev, $dir)
     {
-        $allowedPackages = $this->getDependencies();
+        $allowedPackages = $this->_getDependencies();
         $allowedPackages = $allowedPackages['require'] + $allowedPackages['require-dev'];
 
         if (!array_key_exists($package, $allowedPackages)) {
@@ -476,16 +521,14 @@ class Oven {
             '--no-interaction' => true,
             '--working-dir' => $dir,
             '--no-progress' => true,
-            'packages' => [
-                $package . ($version ? ':' . $version : '')
-            ],
+            'packages' => $package . ($version ? ':' . $version : ''),
         ];
 
         if ($dev) {
             $input['--dev'] = true;
         }
 
-        $output = $this->runComposer($input)->fetch();
+        $output = $this->_runComposer($input);
 
         if (strpos($output, 'Generating autoload files') === false) {
             throw new Exception("Error installing package {$package}");
@@ -494,49 +537,50 @@ class Oven {
         return $output;
     }
 
-    protected function clearDependencies()
+    protected function _clearDependencies()
     {
-        $this->backupComposerJson();
-        $json = $this->openComposerJson();
+        $this->_backupComposerJson();
+        $json = $this->_openComposerJson();
         unset($json['require']);
         unset($json['require-dev']);
         unset($json['scripts']['post-install-cmd']);
         unset($json['scripts']['post-create-project-cmd']);
-        $this->saveComposerJson($json);
+        $this->_saveComposerJson($json);
     }
 
-    protected function backupComposerJson()
+    protected function _backupComposerJson()
     {
         return copy($this->installDir . DIRECTORY_SEPARATOR . 'composer.json', $this->installDir . DIRECTORY_SEPARATOR . 'composer.json.bak');
     }
 
-    protected function openComposerJson($composerFile = null)
+    protected function _openComposerJson($composerFile = null)
     {
         if (!$composerFile) {
             $composerFile = 'composer.json';
         }
         $composerFile = $this->installDir . DIRECTORY_SEPARATOR . $composerFile;
+
         return json_decode(file_get_contents($composerFile), true);
     }
 
-    protected function saveComposerJson($json)
+    protected function _saveComposerJson($json)
     {
         $composerFile = $this->installDir . DIRECTORY_SEPARATOR . 'composer.json';
         file_put_contents($composerFile, json_encode($json, JSON_PRETTY_PRINT));
     }
 
-    protected function restoreScripts()
+    protected function _restoreScripts()
     {
-        $composerFileBackup = $this->openComposerJson('composer.json.bak');
-        $composerFile = $this->openComposerJson();
+        $composerFileBackup = $this->_openComposerJson('composer.json.bak');
+        $composerFile = $this->_openComposerJson();
 
         $composerFile['scripts'] = $composerFileBackup['scripts'];
-        $this->saveComposerJson($composerFile);
+        $this->_saveComposerJson($composerFile);
 
         unlink($this->installDir . DIRECTORY_SEPARATOR . 'composer.json.bak');
     }
 
-    protected function getDependencies()
+    protected function _getDependencies()
     {
         $composerFile = json_decode(file_get_contents($this->installDir . DIRECTORY_SEPARATOR . 'composer.json.bak'), true);
 
@@ -901,7 +945,7 @@ $svgs = [
                 margin-left: -159px;
             }
             .starting {
-                margin-top: 140px;
+                margin-top: 120px;
             }
         }
 
@@ -947,6 +991,17 @@ $svgs = [
                     </div>
                 </fieldset>
                 <fieldset>
+                    <legend style="border: none; margin: 0"><label for="stability">CAKEPHP VERSION</label></legend>
+                    <div class="form-group">
+                        <div class="input-group">
+                            <select class="form-control" name="stability" id="stability">
+                                <option value="stable">stable</option>
+                                <option value="beta">beta</option>
+                            </select>
+                        </div>
+                    </div>
+                </fieldset>
+                <fieldset>
                     <legend>Composer</legend>
                     <?php $composerPath = $oven->getComposerSystemPath(); ?>
                     <div class="radio">
@@ -965,21 +1020,27 @@ $svgs = [
                 </fieldset>
                 <fieldset>
                     <legend>Database configuration</legend>
-                    <div class="form-group">
-                        <label for="host">Host</label>
-                        <input type="text" class="form-control" id="host" name="host" />
-                    </div>
-                    <div class="form-group">
-                        <label for="username">Username</label>
-                        <input type="text" class="form-control" id="username" name="username" />
-                    </div>
-                    <div class="form-group">
-                        <label for="password">Password</label>
-                        <input type="text" class="form-control" id="password" name="password" />
-                    </div>
-                    <div class="form-group">
-                        <label for="database">Database</label>
-                        <input type="text" class="form-control" id="database" name="database" />
+                    <div class="row">
+                        <div class="col-xs-6">
+                            <div class="form-group">
+                                <label for="host">Host</label>
+                                <input type="text" class="form-control" id="host" name="host" />
+                            </div>
+                            <div class="form-group">
+                                <label for="username">Username</label>
+                                <input type="text" class="form-control" id="username" name="username" />
+                            </div>
+                        </div>
+                        <div class="col-xs-6">
+                            <div class="form-group">
+                                <label for="database">Database</label>
+                                <input type="text" class="form-control" id="database" name="database" />
+                            </div>
+                            <div class="form-group">
+                                <label for="password">Password</label>
+                                <input type="text" class="form-control" id="password" name="password" />
+                            </div>
+                        </div>
                     </div>
                 </fieldset>
             </div>
@@ -1047,6 +1108,7 @@ $svgs = [
     !function(a){"function"==typeof define&&define.amd?define(["jquery"],a):"object"==typeof module&&module.exports?module.exports=a(require("jquery")):a(jQuery)}(function(a){var b={},c={};a.ajaxq=function(d,e){function j(a){if(b[d])b[d].push(a);else{b[d]=[];var e=a();c[d]=e}}function k(){if(b[d]){var a=b[d].shift();if(a){var e=a();c[d]=e}else delete b[d],delete c[d]}}if("undefined"==typeof e)throw"AjaxQ: queue name is not provided";var f=a.Deferred(),g=f.promise();g.success=g.done,g.error=g.fail,g.complete=g.always;var h="function"==typeof e,i=h?null:a.extend(!0,{},e);return j(function(){var b=a.ajax.apply(window,[h?e():i]);return b.done(function(){f.resolve.apply(this,arguments)}),b.fail(function(){f.reject.apply(this,arguments)}),b.always(k),b}),g},a.each(["getq","postq"],function(b,c){a[c]=function(b,d,e,f,g){return a.isFunction(e)&&(g=g||f,f=e,e=void 0),a.ajaxq(b,{type:"postq"===c?"post":"get",url:d,data:e,success:f,dataType:g})}});var d=function(a){return b.hasOwnProperty(a)&&b[a].length>0||c.hasOwnProperty(a)},e=function(){for(var a in b)if(d(a))return!0;return!1};a.ajaxq.isRunning=function(a){return a?d(a):e()},a.ajaxq.getActiveRequest=function(a){if(!a)throw"AjaxQ: queue name is required";return c[a]},a.ajaxq.abort=function(d){if(!d)throw"AjaxQ: queue name is required";var e=a.ajaxq.getActiveRequest(d);delete b[d],delete c[d],e&&e.abort()},a.ajaxq.clear=function(a){if(a)b[a]&&(b[a]=[]);else for(var c in b)b.hasOwnProperty(c)&&(b[c]=[])}});
 </script>
 <script>
+
     $(function(){
         $('#start').on('click', function(e) {
             e.preventDefault();
@@ -1123,7 +1185,7 @@ $svgs = [
         var title = 'Installing composer...';
         var data = { action: 'installComposer' };
 
-        var composerPath = false;
+        var composerPath = null;
         if ($('input:checked[name="install_composer"]').val() == 0) {
             composerPath = $('#composer_path').val();
             title = 'Checking composer installation...';
@@ -1156,7 +1218,8 @@ $svgs = [
                     data: {
                         action: 'createProject',
                         dir: dir,
-                        composerPath: composerPath
+                        composerPath: composerPath,
+                        stability: $('select[name="stability"]').val()
                     },
                     success: function(response) {
                         var steps = response.steps;
