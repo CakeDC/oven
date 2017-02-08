@@ -585,6 +585,8 @@ class Oven {
     {
         $composerFile = json_decode(file_get_contents($this->installDir . DIRECTORY_SEPARATOR . 'composer.json.bak'), true);
 
+        unset($composerFile['require']['php']);
+
         return [
             'require' => $composerFile['require'],
             'require-dev' => $composerFile['require-dev'],
