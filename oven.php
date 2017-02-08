@@ -31,6 +31,7 @@ class Oven {
 
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
+    const DIR_MODE = 0777;
 
     public function __construct()
     {
@@ -243,7 +244,7 @@ class Oven {
         if (file_exists($this->installDir) && $this->installDir != $this->currentDir && !$this->_isDirEmpty($this->installDir)) {
             throw new Exception("{$this->installDir} is not empty");
         }
-        if (!file_exists($this->installDir) && !mkdir($this->installDir, 0, true)) {
+        if (!file_exists($this->installDir) && !mkdir($this->installDir, self::DIR_MODE, true)) {
             throw new Exception("Could NOT create {$this->installDir} directory");
         }
 
@@ -455,7 +456,7 @@ class Oven {
             throw new InvalidArgumentException('The source passed in does not appear to be a valid directory: [' . $src . ']', 1);
         }
 
-        if (!is_dir($dest) && !mkdir($dest, 0, true)) {
+        if (!is_dir($dest) && !mkdir($dest, self::DIR_MODE, true)) {
             throw new InvalidArgumentException('The destination does not exist, and I can not create it: [' . $dest . ']', 2);
         }
 
@@ -468,7 +469,7 @@ class Oven {
             if ($f->isFile()) {
                 $path_parts = pathinfo($destination);
 
-                if (!is_dir($path_parts['dirname']) && !mkdir($path_parts['dirname'], 0, true)) {
+                if (!is_dir($path_parts['dirname']) && !mkdir($path_parts['dirname'], self::DIR_MODE, true)) {
                     throw new ErrorException("Failed to create the destination directory: [{$path_parts['dirname']}]", 5);
                 }
 
@@ -476,7 +477,7 @@ class Oven {
                     throw new ErrorException("Failed to rename file [{$f->getRealPath()}] to [$destination]", 6);
                 }
             } elseif ($f->isDir()) {
-                if (!is_dir($destination) && !mkdir($destination, 0, true)) {
+                if (!is_dir($destination) && !mkdir($destination, self::DIR_MODE, true)) {
                     throw new ErrorException("Failed to create the destination directory: [$destination]", 7);
                 }
 
