@@ -224,7 +224,7 @@ class Oven {
             $result['log'] = $version;
         }
 
-        if (strpos($version, 'Composer version') === false) {
+        if (strpos($version, 'Composer') === false && strpos($version, 'version') === false) {
             throw new Exception('Invalid composer installation');
         }
 
