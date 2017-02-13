@@ -183,7 +183,7 @@ class Oven {
 
     protected function _runFinalise()
     {
-        $this->_checkPath($this->installDir);
+        //$this->_checkPath($this->installDir);
         $this->_restoreScripts();
 
         $log = $this->_runComposer([
@@ -278,7 +278,7 @@ class Oven {
                 }
 
                 $action = 'installPackage';
-                $dev = $req == 'require-dev';
+                $dev = ($req == 'require-dev') ? 1 : 0;
                 $steps[] = [
                     'title' => $package == 'php' ? "Requiring platform {$package}:{$version}..." : "Installing {$package}:{$version}...",
                     'data' => compact('action', 'package', 'version', 'dev', 'dir', 'composerPath')
@@ -297,9 +297,9 @@ class Oven {
     {
         $package = $_POST['package'];
         $version = $_POST['version'];
-        $dev = isset($_POST['dev']) && $_POST['dev'];
+        $dev = (isset($_POST['dev']) && $_POST['dev']);
 
-        $this->_checkPath($this->installDir);
+        //$this->_checkPath($this->installDir);
 
         return [
             'message' => "{$package}:{$version} installed",
