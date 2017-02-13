@@ -598,7 +598,9 @@ try {
     $oven = new Oven();
     $oven->run();
 } catch (Exception $e) {
-    http_response_code(500);
+    //http_response_code(500);
+    echo '<pre>';
+    print_r($e);
     echo json_encode(['message' => htmlentities($e->getMessage())]);
     exit(0);
 }
