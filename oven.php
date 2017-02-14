@@ -56,7 +56,7 @@ class Oven {
             $action = '_run' . ucfirst($_POST['action']);
             if (method_exists($this, $action)) {
                 header('Content-Type: application/json');
-                $result = $this->$action();
+                $result = $this->$action() + ['success' => 1];
                 echo json_encode($result);
 
                 exit(0);
@@ -531,9 +531,9 @@ class Oven {
 
         $output = $this->_runComposer($input);
 
-        //if (strpos($output, 'Generating autoload files') === false) {
-        //    throw new Exception("Error installing package {$package}");
-        //}
+        if (strpos($output, 'Generating autoload files') === false) {
+            throw new Exception("Error installing package {$package}");
+        }
 
         return $output;
     }
@@ -598,10 +598,11 @@ try {
     $oven = new Oven();
     $oven->run();
 } catch (Exception $e) {
-    //http_response_code(500);
-    echo '<pre>';
-    print_r($e);
-    echo json_encode(['message' => htmlentities($e->getMessage())]);
+    echo json_encode([
+        'success' => 0,
+        'message' => htmlentities($e->getMessage())
+    ]);
+
     exit(0);
 }
 
@@ -1282,7 +1283,7 @@ $svgs = [
                     }
                 },
                 complete: function (response) {
-                    if (response.status === 200) {
+                    if (response.status === 200 && response.success) {
                         $icon
                             .removeClass('fa-spin fa-fw fa-spinner')
                             .addClass('fa-check fa-fw text-success');
@@ -1314,7 +1315,7 @@ $svgs = [
                             .removeClass('fa-spin fa-fw fa-spinner')
                             .addClass('fa-times fa-fw text-danger');
 
-                        $message.text(response.responseJSON.message).addClass('text-danger');
+                        $message.text(response.responseJSON.message ? response.responseJSON.message : 'Unknown error').addClass('text-danger');
 
                         $.ajaxq.abort(queue);
 
