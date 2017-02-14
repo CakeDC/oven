@@ -532,7 +532,7 @@ class Oven {
         $output = $this->_runComposer($input);
 
         if (strpos($output, 'Generating autoload files') === false) {
-            throw new Exception("Error installing package {$package}");
+            throw new Exception("Error installing package {$package}: {$output}");
         }
 
         return $output;
