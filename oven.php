@@ -25,8 +25,8 @@ class Oven {
     public $appDir = 'app';
 
     protected $_versions = [
-        'stable' => '~3.3-stable',
-        'beta' => '~3.3-beta'
+        'stable' => '~3.4-stable',
+        'beta' => '~3.4-beta'
     ];
 
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
@@ -1046,7 +1046,7 @@ $svgs = [
                             </div>
                             <div class="form-group">
                                 <label for="password">Password</label>
-                                <input type="text" class="form-control" id="password" name="password" />
+                                <input type="password" class="form-control" id="password" name="password" />
                             </div>
                         </div>
                     </div>
