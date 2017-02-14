@@ -183,7 +183,7 @@ class Oven {
 
     protected function _runFinalise()
     {
-        //$this->_checkPath($this->installDir);
+        $this->_checkPath($this->installDir);
         $this->_restoreScripts();
 
         $log = $this->_runComposer([
@@ -299,7 +299,7 @@ class Oven {
         $version = $_POST['version'];
         $dev = (isset($_POST['dev']) && $_POST['dev']);
 
-        //$this->_checkPath($this->installDir);
+        $this->_checkPath($this->installDir);
 
         return [
             'message' => "{$package}:{$version} installed",
@@ -534,7 +534,7 @@ class Oven {
         $output = $this->_runComposer($input);
 
         if (strpos($output, 'Generating autoload files') === false) {
-            throw new Exception("Error installing package {$package}: {$output}");
+            throw new Exception("Error installing package {$package}");
         }
 
         return $output;
