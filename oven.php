@@ -386,6 +386,8 @@ class Oven {
         foreach ($input as $k => $v) {
             if (substr($k, 0, 2) == '--') {
                 $command[] = escapeshellcmd($k . ($v === true ? '' : "={$v}"));
+            } elseif (is_array($v)) {
+                $command[] = escapeshellcmd(implode(' ', $v));
             } else {
                 $command[] = escapeshellcmd($v);
             }
@@ -522,7 +524,7 @@ class Oven {
             '--no-interaction' => true,
             '--working-dir' => $dir,
             '--no-progress' => true,
-            'packages' => $package . ($version ? ':' . $version : ''),
+            'packages' => [$package . ($version ? ':' . $version : '')],
         ];
 
         if ($dev) {
