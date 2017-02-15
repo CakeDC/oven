@@ -9,6 +9,8 @@
  * @license MIT License (http://www.opensource.org/licenses/mit-license.php)
  */
 
+session_start() ;
+
 if (!ini_get('safe_mode')) {
     set_time_limit(600);
 }
@@ -23,15 +25,15 @@ class Oven {
     public $composerFilename;
     public $composerPath;
     public $appDir = 'app';
-
-    protected $_versions = [
-        'stable' => '~3.4-stable',
-        'beta' => '~3.4-beta'
+    public $versions = [
+        '~3.4.0' => '~3.4.0',
+        '~3.3.0' => '~3.3.0',
     ];
 
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
     const DIR_MODE = 0777;
+    const VERSIONS_SESSION_KEY = 'cached_versions';
 
     public function __construct()
     {
@@ -48,6 +50,8 @@ class Oven {
         }
 
         $this->installDir = $this->currentDir . $this->appDir;
+
+        $this->versions = $this->_getAvailableVersions();
     }
 
     public function run()
@@ -76,6 +80,44 @@ class Oven {
             $composerBinaryBath = $path . DIRECTORY_SEPARATOR . pathinfo($this->composerFilename, PATHINFO_FILENAME);
             if (is_executable($composerBinaryBath)) {
                 return $composerBinaryBath;
+            }
+        }
+
+        return false;
+    }
+
+    protected function _getAvailableVersions()
+    {
+        if (isset($_SESSION[self::VERSIONS_SESSION_KEY ]) && is_array($_SESSION[self::VERSIONS_SESSION_KEY ])) {
+            return $_SESSION[self::VERSIONS_SESSION_KEY ];
+        }
+
+        if (!$package = json_decode(file_get_contents('https://packagist.org/packages/cakephp/cakephp.json'), true)) {
+            return $this->versions;
+        }
+
+        if (!isset($package['package']['versions'])) {
+            return $this->versions;
+        }
+
+        $tags = array_keys($package['package']['versions']);
+
+        $versions = [];
+        $branches = ['4.0.', '3.5.', '3.4.', '3.3.'];
+        foreach ($branches as $branch) {
+            if ($version = $this->_getLatestVersion($tags, $branch)) {
+                $versions['~' . $version] = $version;
+            }
+        }
+
+        return $_SESSION[self::VERSIONS_SESSION_KEY ] = $versions;
+    }
+
+    protected function _getLatestVersion($versions, $branch)
+    {
+        foreach ($versions as $version) {
+            if (strpos($version, $branch) === 0) {
+                return $version;
             }
         }
 
@@ -252,9 +294,10 @@ class Oven {
             throw new Exception('Invalid app dir ' . $this->installDir);
         }
 
-        $cakeVersion = (isset($_POST['stability']) && array_key_exists($_POST['stability'], $this->_versions))
-            ? $this->_versions[$_POST['stability']]
-            : reset($this->_versions);
+        if (!isset($_POST['version']) || !isset($this->versions[$_POST['version']])) {
+            throw new Exception('Invalid CakePHP version. Available versions: ' . implode(', ', $this->versions));
+        }
+        $cakeVersion = $_POST['version'];
 
         $log = $this->_createProject($this->installDir, false);
 
@@ -999,12 +1042,13 @@ $svgs = [
                     </div>
                 </fieldset>
                 <fieldset>
-                    <legend style="border: none; margin: 0"><label for="stability">CAKEPHP VERSION</label></legend>
+                    <legend style="border: none; margin: 0"><label for="version">CAKEPHP VERSION</label></legend>
                     <div class="form-group">
                         <div class="input-group">
-                            <select class="form-control" name="stability" id="stability">
-                                <option value="stable">stable</option>
-                                <option value="beta">beta</option>
+                            <select class="form-control" name="version" id="version">
+                            <?php foreach ($oven->versions as $k => $v): ?>
+                                <option value="<?php echo $k; ?>"><?php echo $v; ?></option>
+                            <?php endforeach; ?>
                             </select>
                         </div>
                     </div>
@@ -1227,7 +1271,7 @@ $svgs = [
                         action: 'createProject',
                         dir: dir,
                         composerPath: composerPath,
-                        stability: $('select[name="stability"]').val()
+                        version: $('select[name="version"]').val()
                     },
                     success: function(response) {
                         var steps = response.steps;
