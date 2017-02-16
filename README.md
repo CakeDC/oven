@@ -5,7 +5,7 @@
 <a href="https://packagist.org/packages/CakeDC/oven"><img src="https://poser.pugx.org/CakeDC/oven/license.svg" alt="License"></a>
 </p>
 
-Setup you favourite framework with 1 file and 1 click!
+Setup your favourite framework with 1 file and 1 click!
 
 IMPORTANT: **This is not a deployment script**, it's aimed to help developers installing CakePHP for the first time
 and get a working development environment up and running in seconds. Production environments should consider several other factors, like file permissions, virtualhost configuration, etc.
