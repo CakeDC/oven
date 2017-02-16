@@ -11,7 +11,7 @@ IMPORTANT: **This is not a deployment script**, it's aimed to help developers in
 and get a working development environment up and running in seconds. Production environments should consider several other factors, like file permissions, virtualhost configuration, etc.
 
 * Upload oven.php file to your host/server
-* Access oven.php through on your host via your favourite browser such as http://localhost/oven.php
+* Access oven.php on your host via your favourite browser such as http://localhost/oven.php
 * Click the big oven knob in the middle of the page
 * CakePHP will auto install and ready to go
 
