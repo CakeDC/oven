@@ -110,7 +110,7 @@ class Oven {
     protected function _updateDatasourceConfig($path, $field, $value)
     {
         $config = file_get_contents($path);
-        $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '$1' . addslashes($value) . '$2', $config);
+        $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '${1}' . $value . '${2}', $config);
 
         return file_put_contents($path, $config);
     }
