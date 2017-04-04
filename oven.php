@@ -594,6 +594,32 @@ class Oven {
             'require-dev' => $composerFile['require-dev'],
         ];
     }
+
+    protected function _runCheckDatabaseConnection()
+    {
+        if (!isset($_POST['host']) || empty($_POST['host'])) {
+            throw new Exception('Missing database host');
+        }
+        if (!isset($_POST['database']) || empty($_POST['database'])) {
+            throw new Exception('Missing database name');
+        }
+        if (!isset($_POST['username']) || empty($_POST['username'])) {
+            throw new Exception('Missing database username');
+        }
+        $password = '';
+        if (isset($_POST['password'])) {
+            $password = $_POST['password'];
+        }
+
+        $dsn = "mysql:dbname={$_POST['database']};host={$_POST['host']}";
+        try {
+            $dbh = new PDO($dsn, $_POST['username'], $password);
+        } catch (PDOException $e) {
+            throw $e;
+        }
+
+        return ['message' => 'Successfully connected to the database.'];
+    }
 }
 
 try {
@@ -1029,6 +1055,11 @@ $svgs = [
                 <fieldset>
                     <legend>Database configuration</legend>
                     <div class="row">
+                        <div class="col-xs-12">
+                            <div id="database-message"></div>
+                        </div>
+                    </div>
+                    <div class="row">
                         <div class="col-xs-6">
                             <div class="form-group">
                                 <label for="host">Host</label>
@@ -1048,6 +1079,9 @@ $svgs = [
                                 <label for="password">Password</label>
                                 <input type="password" class="form-control" id="password" name="password" />
                             </div>
+                        </div>
+                        <div class="col-xs-12">
+                            <button type="button" id="test-database-button" class="btn btn-primary">Test connection</button>
                         </div>
                     </div>
                 </fieldset>
@@ -1117,7 +1151,7 @@ $svgs = [
 </script>
 <script>
 
-    $(function(){
+    $(function() {
         $('#start').on('click', function(e) {
             e.preventDefault();
 
@@ -1152,6 +1186,23 @@ $svgs = [
         $('input[name="install_composer"]', '#config-form').on('change', function() {
             $('#composer_path').attr('disabled', $('input:checked[name="install_composer"]').val() == 1 ? 'disabled' : false);
         }).filter(':checked').triggerHandler('change');
+
+        $('#host, #database, #username').on('change', function() {
+            var host = $('#host');
+            var database = $('#database');
+            var username = $('#username');
+
+            if ((host.val() === '') || (database.val() === '') || (username.val() === '')) {
+                $('#test-database-button').prop('disabled', true);
+            } else {
+                $('#test-database-button').prop('disabled', false);
+            }
+        });
+        $('#host, #database, #username').change();
+
+        $('#test-database-button').on('click', function(e) {
+            checkDatabaseConnection();
+        });
     });
 
     function runRequirementsSteps($list, $composerList, $cakeList, dir) {
@@ -1341,6 +1392,33 @@ $svgs = [
                     }
                 }
             });
+        });
+    }
+
+    function checkDatabaseConnection() {
+        $.ajax({
+            url: 'oven.php',
+            dataType: 'json',
+            cache: false,
+            method: 'post',
+            data: {
+                action: 'checkDatabaseConnection',
+                host: $('#host').val(),
+                database: $('#database').val(),
+                username: $('#username').val(),
+                password: $('#password').val(),
+            },
+            complete: function (response) {
+                console.log(response);
+                console.log(response.responseJSON.success);
+                if (response.status === 200 && response.responseJSON.success) {
+                    $('#database-message').empty();
+                    $('#database-message').html('<div class="alert alert-success" role="alert">' + response.responseJSON.message + '</div>');
+                } else {
+                    $('#database-message').empty();
+                    $('#database-message').html('<div class="alert alert-danger" role="alert">' + response.responseJSON.message + '</div>');
+                }
+            }
         });
     }
 </script>
