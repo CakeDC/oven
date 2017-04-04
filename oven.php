@@ -597,6 +597,10 @@ class Oven {
 
     protected function _runCheckDatabaseConnection()
     {
+        if (!$this->_checkDriverEnabled()) {
+            throw new Exception('Mysql driver is not available');
+        }
+
         if (!isset($_POST['host']) || empty($_POST['host'])) {
             throw new Exception('Missing database host');
         }
@@ -606,19 +610,34 @@ class Oven {
         if (!isset($_POST['username']) || empty($_POST['username'])) {
             throw new Exception('Missing database username');
         }
+
+        $host = filter_input(INPUT_POST, 'host', FILTER_SANITIZE_SPECIAL_CHARS);
+        $database = filter_input(INPUT_POST, 'database', FILTER_SANITIZE_SPECIAL_CHARS);
+        $userName = filter_input(INPUT_POST, 'username', FILTER_SANITIZE_SPECIAL_CHARS);
         $password = '';
         if (isset($_POST['password'])) {
-            $password = $_POST['password'];
+            $password = filter_input(INPUT_POST, 'password', FILTER_SANITIZE_SPECIAL_CHARS);
         }
 
-        $dsn = "mysql:dbname={$_POST['database']};host={$_POST['host']}";
+        $dsn = "mysql:dbname={$database};host={$host}";
         try {
-            $dbh = new PDO($dsn, $_POST['username'], $password);
+            $connection = new PDO($dsn, $userName, $password);
         } catch (PDOException $e) {
             throw $e;
         }
 
         return ['message' => 'Successfully connected to the database.'];
+    }
+
+    /**
+     * Check the database driver is available
+     *
+     * @param string $driver driver name
+     * @return bool
+     */
+    protected function _checkDriverEnabled($driver = 'mysql')
+    {
+        return in_array($driver, PDO::getAvailableDrivers());
     }
 }
 
@@ -1080,6 +1099,8 @@ $svgs = [
                                 <input type="password" class="form-control" id="password" name="password" />
                             </div>
                         </div>
+                    </div>
+                    <div class="row">
                         <div class="col-xs-12">
                             <button type="button" id="test-database-button" class="btn btn-primary">Test connection</button>
                         </div>
@@ -1409,8 +1430,6 @@ $svgs = [
                 password: $('#password').val(),
             },
             complete: function (response) {
-                console.log(response);
-                console.log(response.responseJSON.success);
                 if (response.status === 200 && response.responseJSON.success) {
                     $('#database-message').empty();
                     $('#database-message').html('<div class="alert alert-success" role="alert">' + response.responseJSON.message + '</div>');
