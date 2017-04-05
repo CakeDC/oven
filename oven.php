@@ -923,6 +923,16 @@ $svgs = [
             display: inline-block;
         }
 
+        .btn {
+            border-radius: 0;
+            background: #d33c44;
+            border-color: #a01f26;
+        }
+        .btn-primary:hover, .btn-primary:focus, .btn-primary:active  {
+            background: #c82e36 !important;
+            border-color: #8c1b21 !important;;
+        }
+
         .input-group-addon {
             border-radius: 0;
             border-color: #deded5;
@@ -1072,7 +1082,7 @@ $svgs = [
                     </div>
                 </fieldset>
                 <fieldset>
-                    <legend>Database configuration</legend>
+                    <legend>Database configuration<button type="button" id="test-database-button" class="btn btn-primary btn-xs pull-right">Test connection</button></legend>
                     <div class="row">
                         <div class="col-xs-12">
                             <div id="database-message"></div>
@@ -1082,27 +1092,22 @@ $svgs = [
                         <div class="col-xs-6">
                             <div class="form-group">
                                 <label for="host">Host</label>
-                                <input type="text" class="form-control" id="host" name="host" />
+                                <input type="text" class="form-control" id="host" name="host" tabindex="1" />
                             </div>
                             <div class="form-group">
                                 <label for="username">Username</label>
-                                <input type="text" class="form-control" id="username" name="username" />
+                                <input type="text" class="form-control" id="username" name="username" tabindex="3" />
                             </div>
                         </div>
                         <div class="col-xs-6">
                             <div class="form-group">
                                 <label for="database">Database</label>
-                                <input type="text" class="form-control" id="database" name="database" />
+                                <input type="text" class="form-control" id="database" name="database" tabindex="2" />
                             </div>
                             <div class="form-group">
                                 <label for="password">Password</label>
-                                <input type="password" class="form-control" id="password" name="password" />
+                                <input type="password" class="form-control" id="password" name="password" tabindex="4" />
                             </div>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-xs-12">
-                            <button type="button" id="test-database-button" class="btn btn-primary">Test connection</button>
                         </div>
                     </div>
                 </fieldset>
