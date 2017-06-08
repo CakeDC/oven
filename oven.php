@@ -152,7 +152,7 @@ class Oven {
     protected function _updateDatasourceConfig($path, $field, $value)
     {
         $config = file_get_contents($path);
-        $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '$1' . addslashes($value) . '$2', $config);
+        $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '${1}' . $value . '${2}', $config);
 
         return file_put_contents($path, $config);
     }
@@ -637,6 +637,51 @@ class Oven {
             'require-dev' => $composerFile['require-dev'],
         ];
     }
+
+    protected function _runCheckDatabaseConnection()
+    {
+        if (!$this->_checkDriverEnabled()) {
+            throw new Exception('Mysql driver is not available');
+        }
+
+        if (!isset($_POST['host']) || empty($_POST['host'])) {
+            throw new Exception('Missing database host');
+        }
+        if (!isset($_POST['database']) || empty($_POST['database'])) {
+            throw new Exception('Missing database name');
+        }
+        if (!isset($_POST['username']) || empty($_POST['username'])) {
+            throw new Exception('Missing database username');
+        }
+
+        $host = filter_input(INPUT_POST, 'host', FILTER_SANITIZE_SPECIAL_CHARS);
+        $database = filter_input(INPUT_POST, 'database', FILTER_SANITIZE_SPECIAL_CHARS);
+        $userName = filter_input(INPUT_POST, 'username', FILTER_SANITIZE_SPECIAL_CHARS);
+        $password = '';
+        if (isset($_POST['password'])) {
+            $password = filter_input(INPUT_POST, 'password', FILTER_SANITIZE_SPECIAL_CHARS);
+        }
+
+        $dsn = "mysql:dbname={$database};host={$host}";
+        try {
+            $connection = new PDO($dsn, $userName, $password);
+        } catch (PDOException $e) {
+            throw $e;
+        }
+
+        return ['message' => 'Successfully connected to the database.'];
+    }
+
+    /**
+     * Check the database driver is available
+     *
+     * @param string $driver driver name
+     * @return bool
+     */
+    protected function _checkDriverEnabled($driver = 'mysql')
+    {
+        return in_array($driver, PDO::getAvailableDrivers());
+    }
 }
 
 try {
@@ -921,6 +966,16 @@ $svgs = [
             display: inline-block;
         }
 
+        .btn {
+            border-radius: 0;
+            background: #d33c44;
+            border-color: #a01f26;
+        }
+        .btn-primary:hover, .btn-primary:focus, .btn-primary:active  {
+            background: #c82e36 !important;
+            border-color: #8c1b21 !important;;
+        }
+
         .input-group-addon {
             border-radius: 0;
             border-color: #deded5;
@@ -1071,26 +1126,31 @@ $svgs = [
                     </div>
                 </fieldset>
                 <fieldset>
-                    <legend>Database configuration</legend>
+                    <legend>Database configuration<button type="button" id="test-database-button" class="btn btn-primary btn-xs pull-right">Test connection</button></legend>
+                    <div class="row">
+                        <div class="col-xs-12">
+                            <div id="database-message"></div>
+                        </div>
+                    </div>
                     <div class="row">
                         <div class="col-xs-6">
                             <div class="form-group">
                                 <label for="host">Host</label>
-                                <input type="text" class="form-control" id="host" name="host" />
+                                <input type="text" class="form-control" id="host" name="host" tabindex="1" />
                             </div>
                             <div class="form-group">
                                 <label for="username">Username</label>
-                                <input type="text" class="form-control" id="username" name="username" />
+                                <input type="text" class="form-control" id="username" name="username" tabindex="3" />
                             </div>
                         </div>
                         <div class="col-xs-6">
                             <div class="form-group">
                                 <label for="database">Database</label>
-                                <input type="text" class="form-control" id="database" name="database" />
+                                <input type="text" class="form-control" id="database" name="database" tabindex="2" />
                             </div>
                             <div class="form-group">
                                 <label for="password">Password</label>
-                                <input type="password" class="form-control" id="password" name="password" />
+                                <input type="password" class="form-control" id="password" name="password" tabindex="4" />
                             </div>
                         </div>
                     </div>
@@ -1161,7 +1221,7 @@ $svgs = [
 </script>
 <script>
 
-    $(function(){
+    $(function() {
         $('#start').on('click', function(e) {
             e.preventDefault();
 
@@ -1196,6 +1256,23 @@ $svgs = [
         $('input[name="install_composer"]', '#config-form').on('change', function() {
             $('#composer_path').attr('disabled', $('input:checked[name="install_composer"]').val() == 1 ? 'disabled' : false);
         }).filter(':checked').triggerHandler('change');
+
+        $('#host, #database, #username').on('change', function() {
+            var host = $('#host');
+            var database = $('#database');
+            var username = $('#username');
+
+            if ((host.val() === '') || (database.val() === '') || (username.val() === '')) {
+                $('#test-database-button').prop('disabled', true);
+            } else {
+                $('#test-database-button').prop('disabled', false);
+            }
+        });
+        $('#host, #database, #username').change();
+
+        $('#test-database-button').on('click', function(e) {
+            checkDatabaseConnection();
+        });
     });
 
     function runRequirementsSteps($list, $composerList, $cakeList, dir) {
@@ -1385,6 +1462,31 @@ $svgs = [
                     }
                 }
             });
+        });
+    }
+
+    function checkDatabaseConnection() {
+        $.ajax({
+            url: 'oven.php',
+            dataType: 'json',
+            cache: false,
+            method: 'post',
+            data: {
+                action: 'checkDatabaseConnection',
+                host: $('#host').val(),
+                database: $('#database').val(),
+                username: $('#username').val(),
+                password: $('#password').val(),
+            },
+            complete: function (response) {
+                if (response.status === 200 && response.responseJSON.success) {
+                    $('#database-message').empty();
+                    $('#database-message').html('<div class="alert alert-success" role="alert">' + response.responseJSON.message + '</div>');
+                } else {
+                    $('#database-message').empty();
+                    $('#database-message').html('<div class="alert alert-danger" role="alert">' + response.responseJSON.message + '</div>');
+                }
+            }
         });
     }
 </script>
