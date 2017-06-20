@@ -933,7 +933,7 @@ $svgs = [
         }
 
         .cake-button img {
-            background-color: #d33c44;
+            background-color: #d33c43;
             line-height: 30px;
             padding: 16px 16px 13px 17px;
             border-radius: 12px 0px 0px 12px;
@@ -982,14 +982,14 @@ $svgs = [
         }
 
         .mixer-button img {
-            background-color: #f39c12;
+            background-color: #d33c43;
             line-height: 36px;
             padding: 11px 10px 11px 10px;
             border-radius: 6px 0px 0px 6px;
             display: inline-block;
             vertical-align: top;
             height: 36px;
-            box-shadow: 0px 5px 0px #985f0d;
+            box-shadow: 0px 5px 0px #AF333C;
         }
 
         .starting {
