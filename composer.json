@@ -23,5 +23,6 @@
         "source": "https://github.com/CakeDC/oven"
     },
     "require": {
+        "php": ">=5.5"
     }
 }

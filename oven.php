@@ -270,7 +270,7 @@ class Oven {
 
         $configPath = $this->installDir . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'app.php';
         foreach (['host', 'username', 'password', 'database'] as $field) {
-            if (isset($_POST[$field]) && !empty($_POST[$field])) {
+            if (isset($_POST[$field])) {
                 $this->_updateDatasourceConfig($configPath, $field, $_POST[$field]);
             }
         }
