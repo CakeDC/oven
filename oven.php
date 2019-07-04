@@ -27,7 +27,7 @@ class Oven {
     public $appDir = 'app';
     public $versions = [
         '~3.6.0' => '~3.6.0',
-        '~3.5.0' => '~3.5.0',
+        '~3.7.0' => '~3.7.0',
     ];
 
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
@@ -105,7 +105,7 @@ class Oven {
         $tags = array_keys($package['package']['versions']);
 
         $versions = [];
-        $branches = ['4.0.', '3.6.', '3.5.'];
+        $branches = ['4.0.', '3.6.', '3.7.'];
         foreach ($branches as $branch) {
             if ($version = $this->_getLatestVersion($tags, $branch)) {
                 $versions['~' . $version] = $version;
