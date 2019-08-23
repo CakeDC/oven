@@ -19,6 +19,10 @@ ini_set('memory_limit', '512M');
 
 class Oven {
 
+    /**
+     * @var array
+     */
+    public $availableDrivers = [];
     public $installDir;
     public $currentDir;
     public $composerHomeDir;
@@ -58,6 +62,7 @@ class Oven {
         $this->installDir = $this->currentDir . $this->appDir;
 
         $this->versions = $this->_getAvailableVersions();
+        $this->availableDrivers = $this->_getAvailableDatabaseDrivers();
     }
 
     public function run()
@@ -699,8 +704,7 @@ class Oven {
     protected function _runCheckDatabaseConnection()
     {
         $driver = filter_input(INPUT_POST, 'driver', FILTER_SANITIZE_SPECIAL_CHARS);
-        $drivers = $this->getDatabaseDrivers();
-        if (!isset($drivers[$driver])) {
+        if (!isset($this->availableDrivers[$driver])) {
             throw new Exception("Driver '$driver' is not available");
         }
         if (!isset($_POST['driver']) || empty($_POST['driver'])) {
@@ -755,18 +759,18 @@ class Oven {
      *
      * @return array
      */
-    public function getDatabaseDrivers()
+    protected function _getAvailableDatabaseDrivers()
     {
         $available = PDO::getAvailableDrivers();
         $drivers = [
-            'mysql' => 'mysql',
-            'pgsql' => 'pgsql',
-            'sqlite' => 'sqlite'
+            'mysql' => 'MySQL',
+            'pgsql' => 'Postgres',
+            'sqlite' => 'Sqlite'
         ];
 
         return array_filter($drivers, function($driver) use ($available) {
             return in_array($driver, $available);
-        });
+        }, ARRAY_FILTER_USE_KEY);
     }
 }
 
@@ -1277,13 +1281,15 @@ $svgs = [
                         <div class="col-xs-12">
                             <legend style="border: none; margin: 0"><label for="version">DRIVER</label></legend>
                             <div class="form-group">
-                                <div class="input-group">
-                                    <select class="form-control" name="driver" id="driver">
-                                        <?php foreach ($oven->getDatabaseDrivers() as $k => $v): ?>
-                                            <option value="<?php echo $v; ?>"><?php echo $v; ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
+                                <?php if ($oven->availableDrivers):?>
+                                <select class="form-control" name="driver" id="driver">
+                                    <?php foreach ($oven->availableDrivers as $k => $v): ?>
+                                        <option value="<?= $k ?>"><?= $v; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <?php else:?>
+                                <div class="alert alert-danger">No driver available</div>
+                                <?php endif;?>
                             </div>
                         </div>
                         <div class="col-xs-6">
