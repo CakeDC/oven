@@ -26,6 +26,8 @@ class Oven {
     public $composerPath;
     public $appDir = 'app';
     public $versions = [
+        '~3.8.0' => '~3.8.0',
+        '~3.7.0' => '~3.7.0',
         '~3.6.0' => '~3.6.0',
         '~3.5.0' => '~3.5.0',
     ];
@@ -105,7 +107,7 @@ class Oven {
         $tags = array_keys($package['package']['versions']);
 
         $versions = [];
-        $branches = ['4.0.', '3.6.', '3.5.'];
+        $branches = ['4.0.', '3.8.', '3.7.', '3.6.', '3.5.'];
         foreach ($branches as $branch) {
             if ($version = $this->_getLatestVersion($tags, $branch)) {
                 $versions['~' . $version] = $version;
