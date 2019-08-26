@@ -19,6 +19,10 @@ ini_set('memory_limit', '512M');
 
 class Oven {
 
+    /**
+     * @var array
+     */
+    public $availableDrivers = [];
     public $installDir;
     public $currentDir;
     public $composerHomeDir;
@@ -31,7 +35,11 @@ class Oven {
         '~3.6.0' => '~3.6.0',
         '~3.5.0' => '~3.5.0',
     ];
-
+    public $databaseDriverClasses = [
+        'mysql' => 'Cake\Database\Driver\Mysql',
+        'pgsql' => 'Cake\Database\Driver\Postgres',
+        'sqlite' => 'Cake\Database\Driver\Sqlite',
+    ];
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
     const DIR_MODE = 0777;
@@ -56,6 +64,7 @@ class Oven {
         $this->installDir = $this->currentDir . $this->appDir;
 
         $this->versions = $this->_getAvailableVersions();
+        $this->availableDrivers = $this->_getAvailableDatabaseDrivers();
     }
 
     public function run()
@@ -155,6 +164,9 @@ class Oven {
 
     protected function _updateDatasourceConfig($path, $field, $value)
     {
+        if ($field === 'driver') {
+            $value = $this->databaseDriverClasses[$value];
+        }
         $config = file_get_contents($path);
         $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '${1}' . $value . '${2}', $config);
 
@@ -271,7 +283,7 @@ class Oven {
         ]);
 
         $configPath = $this->installDir . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'app.php';
-        foreach (['host', 'username', 'password', 'database'] as $field) {
+        foreach (['host', 'username', 'password', 'database', 'driver'] as $field) {
             if (isset($_POST[$field])) {
                 $this->_updateDatasourceConfig($configPath, $field, $_POST[$field]);
             }
@@ -693,11 +705,14 @@ class Oven {
 
     protected function _runCheckDatabaseConnection()
     {
-        if (!$this->_checkDriverEnabled()) {
-            throw new Exception('Mysql driver is not available');
+        $driver = filter_input(INPUT_POST, 'driver', FILTER_SANITIZE_SPECIAL_CHARS);
+        if (!isset($this->availableDrivers[$driver])) {
+            throw new Exception("Driver '$driver' is not available");
         }
-
-        if (!isset($_POST['host']) || empty($_POST['host'])) {
+        if (!isset($_POST['driver']) || empty($_POST['driver'])) {
+            throw new Exception('Missing database driver');
+        }
+        if ($driver != 'sqlite' && (!isset($_POST['host']) || empty($_POST['host']))) {
             throw new Exception('Missing database host');
         }
         if (!isset($_POST['database']) || empty($_POST['database'])) {
@@ -715,7 +730,12 @@ class Oven {
             $password = filter_input(INPUT_POST, 'password', FILTER_SANITIZE_SPECIAL_CHARS);
         }
 
-        $dsn = "mysql:dbname={$database};host={$host}";
+        if ($driver != 'sqlite') {
+            $dsn = "{$driver}:dbname={$database};host={$host}";
+        } else {
+            $dsn = "sqlite:{$database}";
+        }
+
         try {
             $connection = new PDO($dsn, $userName, $password);
         } catch (PDOException $e) {
@@ -734,6 +754,25 @@ class Oven {
     protected function _checkDriverEnabled($driver = 'mysql')
     {
         return in_array($driver, PDO::getAvailableDrivers());
+    }
+
+    /**
+     * Get the list of database drivers allowed
+     *
+     * @return array
+     */
+    protected function _getAvailableDatabaseDrivers()
+    {
+        $available = PDO::getAvailableDrivers();
+        $drivers = [
+            'mysql' => 'MySQL',
+            'pgsql' => 'Postgres',
+            'sqlite' => 'Sqlite'
+        ];
+
+        return array_filter($drivers, function($driver) use ($available) {
+            return in_array($driver, $available);
+        }, ARRAY_FILTER_USE_KEY);
     }
 }
 
@@ -1241,6 +1280,20 @@ $svgs = [
                         </div>
                     </div>
                     <div class="row">
+                        <div class="col-xs-12">
+                            <legend style="border: none; margin: 0"><label for="version">DRIVER</label></legend>
+                            <div class="form-group">
+                                <?php if ($oven->availableDrivers):?>
+                                <select class="form-control" name="driver" id="driver">
+                                    <?php foreach ($oven->availableDrivers as $k => $v): ?>
+                                        <option value="<?= $k ?>"><?= $v; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <?php else:?>
+                                <div class="alert alert-danger">No driver available</div>
+                                <?php endif;?>
+                            </div>
+                        </div>
                         <div class="col-xs-6">
                             <div class="form-group">
                                 <label for="host">Host</label>
@@ -1365,24 +1418,35 @@ $svgs = [
 
             return false;
         });
+        function isSqlite() {
+            return $('#driver').val() === 'sqlite';
+        }
 
         $('input[name="install_composer"]', '#config-form').on('change', function() {
             $('#composer_path').attr('disabled', $('input:checked[name="install_composer"]').val() == 1 ? 'disabled' : false);
         }).filter(':checked').triggerHandler('change');
 
-        $('#host, #database, #username').on('change', function() {
+        $('#driver').on('change', function() {
+            if (isSqlite()) {
+                $('#host').val('').attr('readonly', 'readonly').change();
+            } else {
+                $('#host').removeAttr('readonly');
+            }
+        });
+
+        $('#host, #database, #username, #driver').on('change', function() {
             var host = $('#host');
             var database = $('#database');
             var username = $('#username');
 
-            if ((host.val() === '') || (database.val() === '') || (username.val() === '')) {
+            if ((!isSqlite() && host.val() === '') || (database.val() === '') || (username.val() === '')) {
                 $('#test-database-button').prop('disabled', true);
             } else {
                 $('#test-database-button').prop('disabled', false);
             }
         });
         $('#host, #database, #username').change();
-
+        $('#driver').change();
         $('#test-database-button').on('click', function(e) {
             checkDatabaseConnection();
         });
@@ -1477,6 +1541,7 @@ $svgs = [
                                 username: $('input[name="username"]').val(),
                                 password: $('input[name="password"]').val(),
                                 database: $('input[name="database"]').val(),
+                                driver: $('select[name="driver"]').val(),
                                 installMixer: $('input[name="install_mixer"]').is(':checked') ? 1 : 0
                             }
                         });
@@ -1596,6 +1661,7 @@ $svgs = [
             data: {
                 action: 'checkDatabaseConnection',
                 host: $('#host').val(),
+                driver: $('#driver').val(),
                 database: $('#database').val(),
                 username: $('#username').val(),
                 password: $('#password').val(),
