@@ -40,6 +40,7 @@ class Oven {
         'pgsql' => 'Cake\Database\Driver\Postgres',
         'sqlite' => 'Cake\Database\Driver\Sqlite',
     ];
+    public $minPhp = '7.2.0';
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
     const DIR_MODE = 0777;
@@ -102,7 +103,7 @@ class Oven {
     protected function _getAvailableVersions()
     {
         if (isset($_SESSION[self::VERSIONS_SESSION_KEY ]) && is_array($_SESSION[self::VERSIONS_SESSION_KEY ])) {
-            return $_SESSION[self::VERSIONS_SESSION_KEY ];
+//            return $_SESSION[self::VERSIONS_SESSION_KEY ];
         }
 
         if (!$package = json_decode(file_get_contents('https://packagist.org/packages/cakephp/cakephp.json'), true)) {
@@ -115,8 +116,8 @@ class Oven {
 
         $tags = array_keys($package['package']['versions']);
 
-        $versions = [];
-        $branches = ['4.0.', '3.8.', '3.7.', '3.6.', '3.5.'];
+        $versions = ['4.x-dev' => '4.x-dev'];
+        $branches = ['3.8.', '3.7.', '3.6.', '3.5.'];
         foreach ($branches as $branch) {
             if ($version = $this->_getLatestVersion($tags, $branch)) {
                 $versions['~' . $version] = $version;
@@ -199,11 +200,11 @@ class Oven {
     protected function _runCheckPhp()
     {
         usleep(self::REQUIREMENTS_DELAY);
-        if (!version_compare(PHP_VERSION, '5.5.9', '>=')) {
-            throw new Exception('Your version of PHP is too low. You need PHP 5.5.9 or higher (detected ' . PHP_VERSION . ').');
+        if (!version_compare(PHP_VERSION, $this->minPhp, '>=')) {
+            throw new Exception('Your version of PHP is too low. You need PHP ' . $this->minPhp . ' or higher (detected ' . PHP_VERSION . ').');
         }
 
-        return ['message' => 'Your version of PHP is 5.5.9 or higher (detected ' . PHP_VERSION . ').'];
+        return ['message' => 'Your version of PHP is ' . $this->minPhp. ' or higher (detected ' . PHP_VERSION . ').'];
     }
 
     protected function _runCheckMbString()
@@ -503,7 +504,9 @@ class Oven {
         }
 
         $package = 'cakephp/app';
-        if ($cakeVersion) {
+        if ($cakeVersion === '4.x-dev') {
+            $package .= ':4.x-dev';
+        } else if ($cakeVersion) {
             $appVersion = explode('.', $cakeVersion);
             array_pop($appVersion);
             $appVersion[] = 0;
