@@ -30,15 +30,12 @@ class Oven {
     public $composerPath;
     public $appDir = 'app';
     public $versions = [
-        '~3.8.0' => '~3.8.0',
-        '~3.7.0' => '~3.7.0',
-        '~3.6.0' => '~3.6.0',
-        '~3.5.0' => '~3.5.0',
+        '4.x-dev' => '4.x-dev',
     ];
     public $databaseDriverClasses = [
-        'mysql' => 'Cake\Database\Driver\Mysql',
-        'pgsql' => 'Cake\Database\Driver\Postgres',
-        'sqlite' => 'Cake\Database\Driver\Sqlite',
+        'mysql' => 'Mysql',
+        'pgsql' => 'Postgres',
+        'sqlite' => 'Sqlite',
     ];
     public $minPhp = '7.2.0';
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
@@ -103,7 +100,7 @@ class Oven {
     protected function _getAvailableVersions()
     {
         if (isset($_SESSION[self::VERSIONS_SESSION_KEY ]) && is_array($_SESSION[self::VERSIONS_SESSION_KEY ])) {
-//            return $_SESSION[self::VERSIONS_SESSION_KEY ];
+            return $_SESSION[self::VERSIONS_SESSION_KEY ];
         }
 
         if (!$package = json_decode(file_get_contents('https://packagist.org/packages/cakephp/cakephp.json'), true)) {
@@ -117,7 +114,7 @@ class Oven {
         $tags = array_keys($package['package']['versions']);
 
         $versions = ['4.x-dev' => '4.x-dev'];
-        $branches = ['3.8.', '3.7.', '3.6.', '3.5.'];
+        $branches = [];
         foreach ($branches as $branch) {
             if ($version = $this->_getLatestVersion($tags, $branch)) {
                 $versions['~' . $version] = $version;
@@ -165,11 +162,13 @@ class Oven {
 
     protected function _updateDatasourceConfig($path, $field, $value)
     {
+        $config = file_get_contents($path);
         if ($field === 'driver') {
             $value = $this->databaseDriverClasses[$value];
+            $config = str_replace(['Driver\\Mysql', 'Mysql::class'], ["Driver\\$value", "$value::class"], $config);
+        } else {
+            $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '${1}' . $value . '${2}', $config);
         }
-        $config = file_get_contents($path);
-        $config = preg_replace(str_replace('__FIELD__', $field, Oven::DATASOURCE_REGEX), '${1}' . $value . '${2}', $config);
 
         return file_put_contents($path, $config);
     }
