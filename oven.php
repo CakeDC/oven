@@ -222,11 +222,9 @@ class Oven {
         usleep(self::REQUIREMENTS_DELAY);
         if (extension_loaded('openssl')) {
             return ['message' => 'Your version of PHP has the openssl extension loaded.'];
-        } elseif (extension_loaded('mcrypt')) {
-            return ['message' => 'Your version of PHP has the mcrypt extension loaded.'];
         }
 
-        throw new Exception('Your version of PHP does NOT have the openssl or mcrypt extension loaded.');
+        throw new Exception('Your version of PHP does NOT have the openssl extension loaded.');
     }
 
     protected function _runCheckIntl()
@@ -1472,7 +1470,7 @@ $svgs = [
                     data: { action: 'checkMbString' }
                 },
                 {
-                    title: 'Checking openssl/mcrypt extension...',
+                    title: 'Checking openssl extension...',
                     data: { action: 'checkOpenSSL' }
                 },
                 {
