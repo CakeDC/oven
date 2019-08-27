@@ -18,7 +18,7 @@ and get a working development environment up and running in seconds. Production 
 Requirements
 ------------
 
-* PHP 5.5.9+
+* PHP 7.2.0+
 
 Support
 -------
