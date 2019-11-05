@@ -23,6 +23,7 @@ class Oven {
      * @var array
      */
     public $availableDrivers = [];
+
     public $installDir;
     public $currentDir;
     public $composerHomeDir;
@@ -38,6 +39,9 @@ class Oven {
         'sqlite' => 'Sqlite',
     ];
     public $minPhp = '7.2.0';
+    const AUTHENTICATION_ALIAS = 'Authentication';
+    const AUTHENTICATION_PACKAGE = "cakephp/authentication";
+    const AUTHENTICATION_VERSION = "2.x-dev";
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
     const DIR_MODE = 0777;
@@ -173,25 +177,22 @@ class Oven {
         return file_put_contents($path, $config);
     }
 
-    protected function _enablePlugin($path, $plugin, $bootstrap = true, $routes = false, $debugOnly = false)
+    protected function _enablePlugin($plugin, $debugOnly = false)
     {
+        $path = $this->installDir . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Application.php';
         $config = file_get_contents($path);
-
-        $bootstrap = $bootstrap
-            ? 'true'
-            : 'false';
-
-        $routes = $routes
-            ? 'true'
-            : 'false';
-
-        $line = "Plugin::load('{$plugin}', ['bootstrap' => {$bootstrap}, 'routes' => $routes]);";
-
+        $targetString = '/(Load more plugins here)/';
+        $insert = "        \$this->addPlugin('%s');";
+        $insert = sprintf($insert, $plugin);
         if ($debugOnly) {
-            $line = "if (Configure::read('debug')) {\n    {$line}\n}";
+            $insert = "        if (Configure::read('debug')) {\n    {$insert}\n        }";
         }
-
-        $config .= "\n\n{$line}";
+        $config = preg_replace(
+            $targetString,
+            "$1 \n" . $insert,
+            $config,
+            1
+        );
 
         return file_put_contents($path, $config);
     }
@@ -286,10 +287,12 @@ class Oven {
                 $this->_updateDatasourceConfig($configPath, $field, $_POST[$field]);
             }
         }
-
         if (isset($_POST['installMixer']) && $_POST['installMixer']) {
-            $bootstrapPath = $this->installDir . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'bootstrap.php';
-            $this->_enablePlugin($bootstrapPath, self::MIXER_PACKAGE, true, true, true);
+            $this->_enablePlugin( self::MIXER_PACKAGE, true);
+        }
+
+        if (isset($_POST['installAuthentication']) && $_POST['installAuthentication']) {
+            $this->_enablePlugin(self::AUTHENTICATION_ALIAS, false);
         }
 
         $message = 'Finalised!';
@@ -369,6 +372,18 @@ class Oven {
                     'data' => compact('action', 'package', 'version', 'dev', 'dir', 'composerPath')
                 ];
             }
+        }
+
+        if (isset($_POST['installAuthentication']) && $_POST['installAuthentication']) {
+            $package = self::AUTHENTICATION_PACKAGE;
+            $version = self::AUTHENTICATION_VERSION;
+            $action = 'installPackage';
+            $dev = 0;
+
+            $steps[] = [
+                'title' => "Installing {$package}:{$version}...",
+                'data' => compact('action', 'package', 'version', 'dev', 'dir', 'composerPath')
+            ];
         }
 
         if (isset($_POST['installMixer']) && $_POST['installMixer']) {
@@ -620,7 +635,10 @@ class Oven {
     protected function _installPackage($package, $version, $dev, $dir)
     {
         $allowedPackages = $this->_getDependencies();
-        $allowedPackages = $allowedPackages['require'] + $allowedPackages['require-dev'] + [strtolower(self::MIXER_PACKAGE) => self::MIXER_VERSION];
+        $allowedPackages = $allowedPackages['require'] + $allowedPackages['require-dev'] + [
+            strtolower(self::MIXER_PACKAGE) => self::MIXER_VERSION,
+            self::AUTHENTICATION_PACKAGE => self::AUTHENTICATION_VERSION
+        ];
 
         if (!array_key_exists($package, $allowedPackages)) {
             throw new Exception("{$package} package is not allowed");
@@ -1250,6 +1268,11 @@ $svgs = [
                         </div>
                     </div>
                     <div class="checkbox">
+                        <label for="install_authentication">
+                            <input type="checkbox" name="install_authentication" id="install_authentication"> Install <a href="https://github.com/cakephp/authentication/tree/2.x" target="_blank">Authentication plugin</a>
+                        </label>
+                    </div>
+                    <div class="checkbox">
                         <label for="install_mixer">
                             <input type="checkbox" name="install_mixer" id="install_mixer"> Install <a href="https://github.com/cakedc/mixer" target="_blank">Mixer plugin</a>
                         </label>
@@ -1527,7 +1550,8 @@ $svgs = [
                         composerPath: composerPath,
                         version: $('select[name="version"]').val(),
                         stability: $('select[name="stability"]').val(),
-                        installMixer: $('input[name="install_mixer"]').is(':checked') ? 1 : 0
+                        installMixer: $('input[name="install_mixer"]').is(':checked') ? 1 : 0,
+                        installAuthentication: $('input[name="install_authentication"]').is(':checked') ? 1 : 0
                     },
                     success: function(response) {
                         var steps = response.steps;
@@ -1542,7 +1566,8 @@ $svgs = [
                                 password: $('input[name="password"]').val(),
                                 database: $('input[name="database"]').val(),
                                 driver: $('select[name="driver"]').val(),
-                                installMixer: $('input[name="install_mixer"]').is(':checked') ? 1 : 0
+                                installMixer: $('input[name="install_mixer"]').is(':checked') ? 1 : 0,
+                                installAuthentication: $('input[name="install_authentication"]').is(':checked') ? 1 : 0
                             }
                         });
                         runSteps('deps', response.steps, $list);
