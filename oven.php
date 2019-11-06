@@ -47,7 +47,7 @@ class Oven {
     const DIR_MODE = 0777;
     const VERSIONS_SESSION_KEY = 'cached_versions';
     const MIXER_PACKAGE = 'CakeDC/Mixer';
-    const MIXER_VERSION = '@stable';
+    const MIXER_VERSION = '2.x-dev';
 
     public function __construct()
     {
