@@ -31,7 +31,7 @@ class Oven {
     public $composerPath;
     public $appDir = 'app';
     public $versions = [
-        '4.x-dev' => '4.x-dev',
+        '~4.0.0' => '~4.0.0',
     ];
     public $databaseDriverClasses = [
         'mysql' => 'Mysql',
@@ -41,7 +41,7 @@ class Oven {
     public $minPhp = '7.2.0';
     const AUTHENTICATION_ALIAS = 'Authentication';
     const AUTHENTICATION_PACKAGE = "cakephp/authentication";
-    const AUTHENTICATION_VERSION = "2.x-dev";
+    const AUTHENTICATION_VERSION = "^2.0";
     const DATASOURCE_REGEX = "/(\'Datasources'\s\=\>\s\[\n\s*\'default\'\s\=\>\s\[\n\X*\'__FIELD__\'\s\=\>\s\').*(\'\,)(?=\X*\'test\'\s\=\>\s)/";
     const REQUIREMENTS_DELAY = 500000;
     const DIR_MODE = 0777;
@@ -117,8 +117,8 @@ class Oven {
 
         $tags = array_keys($package['package']['versions']);
 
-        $versions = ['4.x-dev' => '4.x-dev'];
-        $branches = [];
+        $versions = [];
+        $branches = ['4.0.'];
         foreach ($branches as $branch) {
             if ($version = $this->_getLatestVersion($tags, $branch)) {
                 $versions['~' . $version] = $version;
