@@ -86,12 +86,12 @@ class Oven {
         $paths = explode(':', getenv('PATH'));
         foreach ($paths as $path) {
             $composerPath = $path . DIRECTORY_SEPARATOR . $this->composerFilename;
-            if (is_readable($composerPath)) {
+            if (@is_readable($composerPath)) {
                 return $composerPath;
             }
 
             $composerBinaryBath = $path . DIRECTORY_SEPARATOR . pathinfo($this->composerFilename, PATHINFO_FILENAME);
-            if (is_executable($composerBinaryBath)) {
+            if (@is_executable($composerBinaryBath)) {
                 return $composerBinaryBath;
             }
         }
