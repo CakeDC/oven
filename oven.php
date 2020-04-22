@@ -86,12 +86,12 @@ class Oven {
         $paths = explode(':', getenv('PATH'));
         foreach ($paths as $path) {
             $composerPath = $path . DIRECTORY_SEPARATOR . $this->composerFilename;
-            if (is_readable($composerPath)) {
+            if (@is_readable($composerPath)) {
                 return $composerPath;
             }
 
             $composerBinaryBath = $path . DIRECTORY_SEPARATOR . pathinfo($this->composerFilename, PATHINFO_FILENAME);
-            if (is_executable($composerBinaryBath)) {
+            if (@is_executable($composerBinaryBath)) {
                 return $composerBinaryBath;
             }
         }
@@ -151,11 +151,11 @@ class Oven {
             return false;
         }
 
-        if (!is_readable($path = $_POST[$var])) {
+        if (!@is_readable($path = $_POST[$var])) {
             throw new Exception("Composer installation not found at {$path}");
         }
 
-        if (substr($path, -5) != '.phar' && !is_executable($path)) {
+        if (substr($path, -5) != '.phar' && !@is_executable($path)) {
             throw new Exception("Composer binary is not executable");
         }
 
@@ -302,7 +302,7 @@ class Oven {
     protected function _runInstallComposer()
     {
         $result = [];
-        if (!is_readable($this->composerPath) || !($version = $this->_getComposerVersion())) {
+        if (!@is_readable($this->composerPath) || !($version = $this->_getComposerVersion())) {
             $result['log'] = $this->_installComposer($this->currentDir, $this->composerFilename);
             $version = $this->_getComposerVersion();
         } else {
