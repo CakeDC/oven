@@ -15,7 +15,7 @@ if (!ini_get('safe_mode')) {
     set_time_limit(600);
 }
 
-ini_set('memory_limit', '512M');
+ini_set('memory_limit', '1G');
 
 class Oven {
 
